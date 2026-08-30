@@ -433,7 +433,9 @@ function updatePublishTargetHint() {
   const constituency = $('constituencyName').value.trim() || 'district';
   const ward = state.ward || $('wardSelect').value || 'ward';
   const filename = `${slugify(constituency)}-${slugify(ward)}.html`;
-  el.innerHTML = `Will publish to: <b>${Publish.pagesUrlFor(repoInfo, filename)}</b>`;
+  el.innerHTML = `Will publish to: <b>${Publish.pagesUrlFor(repoInfo, filename)}</b> -- ` +
+    `or the next number after it (…1.html, …2.html) if that ward's already been published recently and is still live. ` +
+    `Existing pages are never overwritten, so someone else's already-printed sheets are always safe.`;
 }
 $('constituencyName').addEventListener('input', updatePublishTargetHint);
 

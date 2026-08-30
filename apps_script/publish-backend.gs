@@ -101,17 +101,34 @@ function readManifest(owner, repo, token) {
   }
 }
 
+// Picks the lowest-numbered filename for this ward that ISN'T currently
+// occupied by a still-active deployment: <base>.html, then <base>1.html,
+// <base>2.html, etc. NEVER overwrites an existing entry -- two different
+// people publishing the same ward (different route sizes, different
+// event days, one refining the other's draft) must never silently
+// destroy each other's already-printed QR codes. `manifest` here is
+// expected to already have expired entries removed, so a freed slot
+// (e.g. the plain <base>.html expired and was deleted) is naturally
+// reused before any higher number, keeping numbering at its lowest
+// possible value rather than ever "sticking" at a higher one.
+function pickAvailableFilename(manifest, base) {
+  let filename = `${base}.html`;
+  for (let n = 1; manifest[filename] && n < 1000; n++) {
+    filename = `${base}${n}.html`;
+  }
+  return filename;
+}
+
 function publishWard(owner, repo, token, constituency, ward, htmlContent) {
   const constSlug = slugify(constituency);
   const wardSlug = slugify(ward);
-  const filename = `${constSlug}-${wardSlug}.html`;
+  const base = `${constSlug}-${wardSlug}`;
 
   const manifest = readManifest(owner, repo, token);
 
   const cutoff = Date.now() - MAX_AGE_DAYS * 86400000;
   const cleanedUp = [];
   Object.keys(manifest).forEach(fname => {
-    if (fname === filename) return; // about to be refreshed below regardless of age
     const entry = manifest[fname];
     const ts = Date.parse(entry.generatedAt);
     if (!isNaN(ts) && ts < cutoff) {
@@ -120,6 +137,8 @@ function publishWard(owner, repo, token, constituency, ward, htmlContent) {
       delete manifest[fname];
     }
   });
+
+  const filename = pickAvailableFilename(manifest, base);
 
   writeFile(owner, repo, filename, htmlContent, `Publish ${ward} route app`, token);
   manifest[filename] = { ward, constituency, generatedAt: new Date().toISOString() };
