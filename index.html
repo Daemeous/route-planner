@@ -100,7 +100,13 @@
       <div>
         <label>Target residences per route</label>
         <input type="number" id="targetSize" value="150" min="30" step="10">
-        <div class="hint">~90 minutes of leafleting at ~100 homes/hour. Smaller = easier, more routes.</div>
+        <div class="hint">~90 minutes of leafleting at ~100 homes/hour, calibrated for a typical housing estate.
+          A route covering the same target will be a much smaller area in a dense town centre, and a much
+          longer walk or drive on spread-out rural roads -- the target is a residence count, not a distance.
+          <br><br>
+          Residence counts come from UPRN records (unique property references), which tend to run a little
+          high compared to how many doors you'll actually knock on -- treat every figure on this page as an
+          estimate, not an exact count.</div>
       </div>
       <div>
         <label>Ward size</label>
@@ -134,10 +140,16 @@
     </div>
     <div id="manualStartFields" style="display:none;margin-top:10px">
       <label>Start point name</label><input type="text" id="manualStartName" placeholder="e.g. The Red Lion, High Street">
-      <div class="row">
+      <label>Paste coordinates</label>
+      <input type="text" id="coordPaste" placeholder="Paste anything with two numbers in it here">
+      <div class="hint">Search "&lt;pub name&gt; &lt;town&gt; latitude longitude" on Google -- its AI answer gives you
+        coordinates you can paste straight in here, in whatever format it comes in. Or just type/paste two
+        numbers separated by anything.</div>
+      <div class="row" style="margin-top:10px">
         <div><label>Latitude</label><input type="text" id="manualStartLat" placeholder="52.8123"></div>
         <div><label>Longitude</label><input type="text" id="manualStartLon" placeholder="-2.1123"></div>
       </div>
+      <div class="banner" id="coordBanner"></div>
     </div>
     <div id="pubPickPanel" style="margin-top:10px"></div>
 
@@ -154,30 +166,38 @@
   </div>
 
   <div class="step disabled" id="step4">
-    <h2><span class="step-num">4</span>Connect this ward's live tracker (optional)</h2>
-    <label>This ward's Apps Script URL</label>
-    <input type="text" id="appsScriptUrl" placeholder="https://script.google.com/macros/s/…/exec">
-    <div class="hint">From the live leaflet-map site's own config (MAP_CONFIG.APPS_SCRIPT_URL in its index.html). In-app progress reports write straight to that ward's own Data sheet -- authorised editors write directly, everyone else's taps go to that site's normal pending-review queue. Leave blank to generate a read-only app with no reporting.</div>
-    <div class="btn-row"><button class="btn secondary" id="testBackendBtn">Test connection</button></div>
-    <div class="banner" id="backendTestBanner"></div>
+    <h2><span class="step-num">4</span>Live tracker connection</h2>
+    <div id="trackerAutoConnected" style="display:none">
+      <div class="banner show ok">✓ Connected -- progress reported in the app goes straight to this ward's own live tracker.</div>
+    </div>
+    <div id="trackerManualConnect">
+      <label>This ward's Apps Script URL (optional)</label>
+      <input type="text" id="appsScriptUrl" placeholder="https://script.google.com/macros/s/…/exec">
+      <div class="hint">From the live leaflet-map site's own config (MAP_CONFIG.APPS_SCRIPT_URL in its index.html). In-app progress reports write straight to that ward's own Data sheet -- authorised editors write directly, everyone else's taps go to that site's normal pending-review queue. Leave blank to generate a read-only app with no reporting.</div>
+      <div class="btn-row"><button class="btn secondary" id="testBackendBtn">Test connection</button></div>
+      <div class="banner" id="backendTestBanner"></div>
+    </div>
   </div>
 
   <div class="step disabled" id="step5">
     <h2><span class="step-num">5</span>Get your deliverables</h2>
-    <div class="btn-row">
-      <button class="btn green" id="downloadAppBtn">Download interactive app (.html)</button>
-      <button class="btn green" id="downloadSheetsBtn">Download &amp; print route sheets</button>
-    </div>
-
-    <label style="margin-top:22px">Publish straight to GitHub Pages</label>
-    <div class="row">
-      <div><label>Constituency / district</label><input type="text" id="constituencyName" placeholder="e.g. Stafford"></div>
-      <div><label>GitHub personal access token</label><input type="text" id="githubToken" placeholder="ghp_… (repo scope)"></div>
-    </div>
+    <label>Constituency / district</label>
+    <input type="text" id="constituencyName" placeholder="e.g. Stafford">
     <div class="hint" id="publishTargetHint"></div>
     <div class="hint">A fresh route plan should be generated close to the actual event day so it reflects the latest leafleted roads -- publishing here auto-deletes any previously published page over 14 days old, and tells you what it removed.</div>
-    <div class="btn-row"><button class="btn" id="publishBtn">Publish to GitHub Pages</button></div>
+    <div class="btn-row">
+      <button class="btn green" id="publishBtn">Publish to our shared site</button>
+      <button class="btn green" id="downloadSheetsBtn">Download &amp; print route sheets</button>
+    </div>
     <div class="banner" id="publishBanner"></div>
+
+    <span class="advanced-toggle" id="hostMyselfToggle">⚙ I'll host it myself instead</span>
+    <div class="advanced-body" id="hostMyselfBody">
+      <label>Where you'll host the app</label>
+      <input type="text" id="appUrlBase" placeholder="https://yourname.github.io/your-repo/wardname.html">
+      <div class="hint">Used for the QR codes on the route sheets and printed above -- re-download the sheets after filling this in if you already downloaded them.</div>
+      <div class="btn-row"><button class="btn secondary" id="downloadAppBtn">Download interactive app (.html)</button></div>
+    </div>
   </div>
 
   <footer>Runs entirely in your browser. No data leaves your device except direct calls to OpenStreetMap and, if you choose, your own Google account.</footer>
@@ -192,6 +212,7 @@
 <script src="js/secretWords.js"></script>
 <script src="js/mapData.js"></script>
 <script src="js/pubs.js"></script>
+<script src="js/coords.js"></script>
 <script src="js/sheets.js"></script>
 <script src="js/tracker.js"></script>
 <script src="js/pipeline.js"></script>

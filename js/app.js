@@ -106,6 +106,7 @@ $('loadTrackerBtn').onclick = async () => {
     state.appsScriptUrl = cfg.appsScriptUrl;
     if (cfg.googleClientId) state.googleClientId = cfg.googleClientId;
     if (cfg.appsScriptUrl) { $('appsScriptUrl').value = cfg.appsScriptUrl; enableStep('step4'); }
+    updateTrackerConnectionUI();
     setBanner(banner, 'info', `Found "${cfg.title || 'this deployment'}"'s data source -- loading…`);
     const loaded = await loadRowsFromCsv(cfg.csvUrl);
     applyLoadedData(loaded);
@@ -154,6 +155,23 @@ document.querySelectorAll('input[name=startMode]').forEach(r => {
   };
 });
 
+// Skips the "paste an Apps Script URL and test it" busywork when it's
+// already known-good from the tracker load -- nothing to verify there.
+function updateTrackerConnectionUI() {
+  const connected = !!state.appsScriptUrl;
+  $('trackerAutoConnected').style.display = connected ? 'block' : 'none';
+  $('trackerManualConnect').style.display = connected ? 'none' : 'block';
+}
+
+$('coordPaste').addEventListener('input', () => {
+  const banner = $('coordBanner');
+  const parsed = Coords.parseCoordinatePaste($('coordPaste').value);
+  if (!parsed) { clearBanner(banner); return; }
+  $('manualStartLat').value = parsed.lat;
+  $('manualStartLon').value = parsed.lon;
+  setBanner(banner, 'ok', `Parsed: ${parsed.lat}, ${parsed.lon} -- check it looks right below, or edit either field directly.`);
+});
+
 $('wardScale').onchange = onWardOrStartModeChange;
 $('wardSelect').onchange = () => { fillConstituencyGuess(); onWardOrStartModeChange(); };
 
@@ -173,7 +191,7 @@ async function onWardOrStartModeChange() {
     const pubs = await Pubs.fetchPubs(bbox);
     const shortlist = Pubs.shortlistPubsForWard(pubs, centroid, 6);
     state.pubShortlist = shortlist;
-    if (!shortlist.length) { panel.innerHTML = '<div class="hint">No pubs found nearby -- use "Enter a start point myself" instead.</div>'; return; }
+    if (!shortlist.length) { panel.innerHTML = pubLookupFallbackHtml(); return; }
     state.selectedPub = shortlist[0];
     panel.innerHTML = '<div class="hint">Pick the event start pub:</div>' + shortlist.map((p, i) =>
       `<label class="radio-opt${i === 0 ? ' active' : ''}" style="margin-top:6px">
@@ -186,8 +204,15 @@ async function onWardOrStartModeChange() {
       state.selectedPub = shortlist[parseInt(r.value, 10)];
     });
   } catch (e) {
-    panel.innerHTML = `<div class="hint">Couldn't look up pubs (${e.message}). Use "Enter a start point myself" instead.</div>`;
+    panel.innerHTML = pubLookupFallbackHtml(e.message);
   }
+}
+
+function pubLookupFallbackHtml(errorDetail) {
+  const reason = errorDetail ? `Couldn't look up pubs (${errorDetail}).` : "No pubs found nearby.";
+  return `<div class="hint">${reason} Use "Enter a start point myself" below --
+    search "&lt;pub name&gt; &lt;town&gt; latitude longitude" on Google, and its AI answer will give you
+    coordinates to paste straight in.</div>`;
 }
 
 function currentClusterOpts() {
@@ -231,6 +256,15 @@ $('buildBtn').onclick = async () => {
         pubLat = parseFloat($('manualStartLat').value);
         pubLon = parseFloat($('manualStartLon').value);
         if (!isFinite(pubLat) || !isFinite(pubLon)) throw new Error('Enter a valid latitude and longitude for the start point.');
+
+        const wardRoadsForCheck = Graph.loadRoads(state.rows.filter(r => r.wardName === ward), { ward });
+        const [latMin, lonMin, latMax, lonMax] = Pipeline.bboxOfRoads(wardRoadsForCheck);
+        const fixed = Coords.fixSignIfOutOfBounds({ lat: pubLat, lon: pubLon }, { latMin, lonMin, latMax, lonMax });
+        if (fixed.corrected) {
+          pubLat = fixed.lat; pubLon = fixed.lon;
+          logLine(log, `⚠ ${fixed.note}`);
+          $('manualStartLat').value = pubLat; $('manualStartLon').value = pubLon;
+        }
       } else {
         if (!state.selectedPub) throw new Error('No start pub selected -- wait for the lookup to finish or enter one manually.');
         pubName = state.selectedPub.name; pubLat = state.selectedPub.lat; pubLon = state.selectedPub.lon;
@@ -245,6 +279,7 @@ $('buildBtn').onclick = async () => {
     renderReview(payload);
     setBanner(banner, 'ok', 'Routes built -- see the review step below.');
     enableStep('step3'); enableStep('step4'); enableStep('step5');
+    updateTrackerConnectionUI();
     updatePublishTargetHint();
   } catch (e) {
     setBanner(banner, 'error', e.message);
@@ -318,10 +353,14 @@ function slugify(name) { return Publish.slugify(name); }
 
 function currentAppUrl() {
   if (state.appUrl) return state.appUrl;
+  const hostMyselfUrl = $('appUrlBase').value.trim();
+  if (hostMyselfUrl) return hostMyselfUrl;
   const repoInfo = Publish.inferRepoFromLocation();
   if (repoInfo) return Publish.pagesUrlFor(repoInfo, `${slugify($('constituencyName').value || 'district')}-${slugify(state.ward)}.html`);
   return `https://example.github.io/your-repo/${slugify(state.ward)}.html`;
 }
+
+$('hostMyselfToggle').onclick = () => $('hostMyselfBody').classList.toggle('show');
 
 $('downloadAppBtn').onclick = () => {
   if (!state.payload) return;
@@ -342,7 +381,7 @@ function updatePublishTargetHint() {
   const el = $('publishTargetHint');
   const repoInfo = Publish.inferRepoFromLocation();
   if (!repoInfo) {
-    el.textContent = "Not running from a *.github.io page right now (e.g. local testing) -- publishing needs to run from the real hosted copy so it knows which repo to push to.";
+    el.textContent = "Not running from the real hosted copy right now (e.g. local testing) -- publishing needs that to know where to land.";
     return;
   }
   state.repoInfo = repoInfo;
@@ -355,21 +394,17 @@ $('constituencyName').addEventListener('input', updatePublishTargetHint);
 
 $('publishBtn').onclick = async () => {
   const banner = $('publishBanner');
-  const token = $('githubToken').value.trim();
   const constituency = $('constituencyName').value.trim();
   if (!state.payload) { setBanner(banner, 'error', 'Build routes first.'); return; }
-  if (!token) { setBanner(banner, 'error', 'Paste a GitHub personal access token (repo scope) first.'); return; }
   if (!constituency) { setBanner(banner, 'error', 'Enter the constituency/district name first.'); return; }
-  const repoInfo = Publish.inferRepoFromLocation();
-  if (!repoInfo) { setBanner(banner, 'error', "Can't tell which repo to publish to -- open this tool from its real github.io URL, not localhost."); return; }
 
   setBanner(banner, 'info', 'Publishing…');
   $('publishBtn').disabled = true;
   try {
-    const result = await Publish.publishWard(repoInfo, token, { constituency, ward: state.ward, htmlContent: buildAppHtml() });
+    const result = await Publish.publishWard({ constituency, ward: state.ward, htmlContent: buildAppHtml() });
     state.appUrl = result.url;
     let msg = `Published: ${result.url}`;
-    if (result.cleanedUp.length) {
+    if (result.cleanedUp && result.cleanedUp.length) {
       msg += ` — cleaned up ${result.cleanedUp.length} page(s) over ${Publish.MAX_AGE_DAYS} days old: ` +
         result.cleanedUp.map(c => c.ward || c.filename).join(', ') +
         `. Reminder: generate a fresh route plan close to the actual event day, not weeks ahead -- it needs an up-to-date picture of which roads are already done to avoid double-leafleting.`;
