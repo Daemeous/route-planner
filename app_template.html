@@ -212,6 +212,10 @@ const DATA = __HTML_DATA__;
 // through the SAME Apps Script backend. Not a separate tracker.
 const APPS_SCRIPT_URL = '__APPS_SCRIPT_URL__';
 const GOOGLE_CLIENT_ID = '__GOOGLE_CLIENT_ID__';
+// When true, every route accepts reporting directly (no QR-code secret
+// word needed to unlock it) -- an opt-in escape hatch for a branch that
+// can't get printed sheets/QR codes to volunteers. See isUnlocked().
+const NO_SECRET_GATE = __NO_SECRET_GATE__;
 
 const ROUTE_COLOR = {
   A:'#2a78d6', B:'#eb6834', C:'#1baf7a', D:'#eda100',
@@ -247,6 +251,7 @@ function matchRouteFromHash(hashRaw) {
   return DATA.routesMeta[hUpper] ? hUpper : null;
 }
 const unlockedRouteId = matchRouteFromHash(window.location.hash);
+function isUnlocked(routeId) { return NO_SECRET_GATE || routeId === unlockedRouteId; }
 
 const map = L.map('map', {tap: true, tapTolerance: 15});
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
@@ -340,7 +345,7 @@ async function onToggleRouteComplete(routeId) {
 
 function popupHtmlForRoad(r) {
   let html = '<b>' + r.street + '</b><br>Route ' + r.routeId + ' — ' + DATA.routesMeta[r.routeId].name + '<br>' + Math.round(r.res) + ' estimated residences';
-  if (r.routeId === unlockedRouteId && r.rowIndex != null) {
+  if (isUnlocked(r.routeId) && r.rowIndex != null) {
     const done = isRoadDone(r.routeId, r.id);
     const pending = isRoadPending(r.routeId, r.id);
     const label = pending ? '⏳ Awaiting review' : (done ? '↺ Undo — not done yet' : '✓ Mark this road done');
@@ -459,7 +464,7 @@ function authLineHtml() {
 }
 
 function buildReportPanelHtml(routeId) {
-  if (routeId !== unlockedRouteId) {
+  if (!isUnlocked(routeId)) {
     return unlockedRouteId
       ? '<div class="report-banner locked">🔒 Read-only — this isn\'t the route on your printed sheet.</div>'
       : '<div class="report-banner locked">🔒 Read-only — open the link or QR code from your printed route sheet to report progress here.</div>';

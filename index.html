@@ -193,6 +193,19 @@
     <input type="text" id="constituencyName" placeholder="e.g. Stafford">
     <div class="hint" id="publishTargetHint"></div>
     <div class="hint">A fresh route plan should be generated close to the actual event day so it reflects the latest leafleted roads -- publishing here auto-deletes any previously published page over 14 days old, and tells you what it removed.</div>
+
+    <div class="hint" style="background:#f6f6f4;border-radius:8px;padding:10px 12px;margin:14px 0">
+      <b>How route access works:</b> each route gets its own secret word baked into its QR code and printed link
+      (e.g. <code>#Arbor</code>). Only someone who scans or opens that specific route's code can report progress
+      on it -- everyone else can still browse the map, but reporting stays locked to a read-only view. This
+      needs the printed sheets (or their links) to actually reach volunteers.
+      <label class="report-road-item" style="margin-top:8px">
+        <input type="checkbox" id="noSecretGate">
+        <span>Skip this -- let anyone using the app report on any route</span>
+      </label>
+      <div class="hint" style="margin:4px 0 0">For a branch that can't get printed sheets or QR codes to people. With this on, whoever opens the app can pick and report on any route directly, no scanning needed.</div>
+    </div>
+
     <div class="btn-row">
       <button class="btn green" id="publishBtn">Publish to our shared site</button>
       <button class="btn green" id="downloadSheetsBtn">Download &amp; print route sheets</button>

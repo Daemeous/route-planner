@@ -14,7 +14,7 @@ const state = {
   pubShortlist: [], selectedPub: null,
   payload: null, appsScriptUrl: '',
   googleClientId: DEFAULT_GOOGLE_CLIENT_ID,
-  repoInfo: null, appUrl: null,
+  repoInfo: null, appUrl: null, previewBlobUrl: null,
 };
 
 const $ = id => document.getElementById(id);
@@ -338,6 +338,7 @@ $('buildBtn').onclick = async () => {
 function buildAppHtml() {
   return HtmlApp.buildHtml(state.payload, window.__APP_TEMPLATE__, state.ward, {
     appsScriptUrl: state.appsScriptUrl, googleClientId: state.googleClientId,
+    noSecretGate: $('noSecretGate').checked,
   });
 }
 
@@ -356,7 +357,17 @@ function renderReview(payload) {
     [(payload.hubs || [1]).length, payload.hubs ? 'Local areas' : 'Start point'],
   ].map(([num, lbl]) => `<div class="summary-tile"><div class="num">${num}</div><div class="lbl">${lbl}</div></div>`).join('');
 
-  $('previewFrame').srcdoc = buildAppHtml();
+  // A real Blob URL (not srcdoc) so the iframe has an actual URL with a
+  // hash fragment -- srcdoc documents have no location.hash to match a
+  // secret against. Defaults the preview to Route A's secret so reviewing
+  // the app shows the unlocked/report-panel view out of the box, without
+  // needing to know or look up a word first.
+  if (state.previewBlobUrl) URL.revokeObjectURL(state.previewBlobUrl);
+  const routeA = payload.routes.find(r => r.id === 'A') || payload.routes[0];
+  const previewHtml = buildAppHtml();
+  const blob = new Blob([previewHtml], { type: 'text/html' });
+  state.previewBlobUrl = URL.createObjectURL(blob);
+  $('previewFrame').src = state.previewBlobUrl + (routeA ? '#' + routeA.secret : '');
 
   $('routeList').innerHTML = payload.routes.map(r =>
     `<div class="rl-item"><span><b>${r.id}</b> ${r.name}</span><span>${Math.round(r.residencesTotal)} res · ${r.kind}</span></div>`

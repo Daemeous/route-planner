@@ -54,12 +54,13 @@ const HtmlApp = (() => {
     };
   }
 
-  function buildHtml(data, template, wardName, { appsScriptUrl = '', googleClientId = '' } = {}) {
+  function buildHtml(data, template, wardName, { appsScriptUrl = '', googleClientId = '', noSecretGate = false } = {}) {
     const payload = exportHtmlData(data);
     let out = template.replace('__HTML_DATA__', JSON.stringify(payload));
     out = out.replaceAll('__WARD_NAME__', wardName);
     out = out.replace('__APPS_SCRIPT_URL__', appsScriptUrl);
     out = out.replace('__GOOGLE_CLIENT_ID__', googleClientId);
+    out = out.replace('__NO_SECRET_GATE__', noSecretGate ? 'true' : 'false');
     return out;
   }
 
