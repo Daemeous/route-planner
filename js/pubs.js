@@ -5,9 +5,13 @@
 if (typeof require !== 'undefined' && typeof fetch === 'undefined') { global.fetch = require('node-fetch'); }
 
 const Pubs = (() => {
+  // overpass.kumi.systems is deliberately NOT in this list -- confirmed via
+  // a real browser that it doesn't send Access-Control-Allow-Origin, so a
+  // page-side fetch() to it is rejected by CORS regardless of whether the
+  // service itself is up. Fine for a server-side caller (no CORS
+  // enforcement there), useless for this browser-only tool.
   const OVERPASS_ENDPOINTS = [
     'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
     'https://lz4.overpass-api.de/api/interpreter',
   ];
 
