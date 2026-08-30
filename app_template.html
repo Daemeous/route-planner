@@ -1,0 +1,658 @@
+<!DOCTYPE html><html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>__WARD_NAME__ Ward Leaflet Routes</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<style>
+  *{box-sizing:border-box}
+  html,body,#map{height:100%;margin:0;padding:0;font-family:'Segoe UI',system-ui,sans-serif}
+
+  /* ── Control panel ── */
+  .ctrl{
+    position:absolute;top:10px;right:10px;z-index:1000;
+    background:white;border-radius:12px;
+    box-shadow:0 3px 16px rgba(0,0,0,0.25);
+    min-width:250px;max-width:calc(100vw - 20px);
+    overflow:hidden
+  }
+  .ctrl-header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:13px 16px;cursor:pointer;user-select:none;
+    gap:10px
+  }
+  .ctrl-header h3{margin:0;font-size:16px;font-weight:700;color:#222;letter-spacing:-0.3px;flex:1}
+  .ctrl-toggle{
+    width:32px;height:32px;border-radius:8px;border:none;
+    background:#f2f2f2;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;transition:background .15s
+  }
+  .ctrl-toggle:active{background:#e0e0e0}
+  .ctrl-toggle svg{transition:transform .25s ease}
+  .ctrl.collapsed .ctrl-toggle svg{transform:rotate(180deg)}
+  .ctrl-body{
+    padding:0 16px 16px;
+    max-height:82vh;overflow-y:auto;
+    transition:max-height .3s ease, padding .3s ease, opacity .25s ease;
+    opacity:1
+  }
+  .ctrl.collapsed .ctrl-body{
+    max-height:0;padding-top:0;padding-bottom:0;opacity:0;pointer-events:none
+  }
+  .ctrl label{display:block;font-weight:600;margin-bottom:8px;font-size:13px;color:#555;text-transform:uppercase;letter-spacing:0.5px}
+
+  .ctrl select{
+    width:100%;padding:12px 10px;font-size:14px;
+    border:2px solid #ddd;border-radius:8px;
+    background:#fafafa;color:#111;
+    -webkit-appearance:none;appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23555' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 12px center;
+    padding-right:36px;cursor:pointer;
+    transition:border-color .15s
+  }
+  .ctrl select:focus{outline:none;border-color:#1a73e8}
+
+  #info{margin-top:12px;font-size:13px;color:#444;line-height:1.6}
+  #info .route-badge{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+  #info .route-swatch{width:14px;height:14px;border-radius:4px;flex-shrink:0}
+  #info .route-num{font-size:20px;font-weight:800;letter-spacing:-0.4px}
+  #info .route-name{font-size:13.5px;font-weight:600;color:#333;margin:0 0 6px}
+  #info .tag-row{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 8px}
+  #info .tag{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:3px 8px;border-radius:999px;background:#f0f0f0;color:#555}
+  #info .res-count{font-size:14px;font-weight:700;color:#222;margin:2px 0 2px}
+  #info .difficulty{font-size:12px;color:#777;font-style:italic;margin-bottom:8px}
+  #info .hint{font-size:12.5px;color:#333;background:#f6f6f6;border-radius:8px;padding:8px 10px;margin:6px 0}
+  #info .hint b{color:#111}
+  #info .notes{font-size:11.5px;color:#777;font-style:italic;margin:6px 0}
+  #info .streets{font-size:12px;color:#666;line-height:1.7}
+
+  .legend{margin-top:14px;border-top:1px solid #eee;padding-top:10px;font-size:11.5px;color:#555;max-height:190px;overflow-y:auto}
+  .legend-item{display:flex;align-items:center;margin:4px 0;gap:8px;cursor:pointer}
+  .legend-swatch{width:20px;height:5px;border-radius:3px;flex-shrink:0}
+  .legend-item .lg-name{flex:1}
+  .legend-item.legend-done .lg-name::before{content:"✓ ";color:#0a8a3a;font-weight:800}
+  .legend-item .lg-res{color:#999;font-family:ui-monospace,monospace;font-size:10.5px}
+
+  #locBtn{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    width:100%;margin-top:12px;padding:11px 14px;
+    font-size:14px;font-weight:600;
+    background:#1a73e8;color:white;
+    border:none;border-radius:8px;cursor:pointer;
+    transition:background .15s,transform .1s
+  }
+  #locBtn:active{transform:scale(0.97)}
+  #locBtn:disabled{background:#aaa;cursor:default}
+  #locBtn.active{background:#0a8a3a}
+  #locBtn svg{flex-shrink:0}
+
+  /* ── Progress reporting ── */
+  .report-banner{font-size:12px;border-radius:8px;padding:9px 11px;margin:10px 0 4px;line-height:1.5}
+  .report-banner.ok{background:#eaf7ee;color:#0a6a2a}
+  .report-banner.locked{background:#f4f4f4;color:#777}
+  .report-complete-btn{
+    display:block;width:100%;margin-top:8px;padding:11px 14px;
+    font-size:13.5px;font-weight:700;text-align:center;
+    background:#0a8a3a;color:white;border:none;border-radius:8px;
+    cursor:pointer;transition:background .15s,transform .1s
+  }
+  .report-complete-btn:active{transform:scale(0.98)}
+  .report-complete-btn.done{background:#eaf7ee;color:#0a6a2a;border:2px solid #0a8a3a}
+  .report-roadlist-label{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.04em;font-weight:700;margin:12px 0 6px}
+  .report-roadlist{max-height:160px;overflow-y:auto;border-top:1px solid #eee;padding-top:2px}
+  .report-road-item{display:flex;align-items:center;gap:9px;padding:6px 2px;font-size:13px;color:#333;cursor:pointer}
+  .report-road-item input{width:17px;height:17px;flex-shrink:0;accent-color:#0a8a3a;cursor:pointer}
+  .report-road-item.done span{color:#0a8a3a;text-decoration:line-through;text-decoration-color:#0a8a3a99}
+  .report-sync-note{font-size:11px;color:#a06a00;margin-top:8px;font-style:italic}
+  .popup-done-btn{
+    display:block;margin-top:7px;padding:6px 10px;font-size:12px;font-weight:700;
+    background:#0a8a3a;color:white;border:none;border-radius:6px;cursor:pointer
+  }
+  .popup-done-btn.undo{background:#888}
+  .popup-done-btn:disabled{background:#bbb;cursor:default}
+
+  .auth-line{display:flex;align-items:center;justify-content:space-between;font-size:12px;margin-bottom:8px}
+  .auth-signin-btn{
+    width:100%;padding:10px 14px;font-size:13.5px;font-weight:700;
+    background:white;color:#3c4043;border:1px solid #dadce0;border-radius:8px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:8px
+  }
+  .auth-signin-btn:active{background:#f4f4f4}
+  .auth-signout{font-size:11px;color:#888;background:none;border:none;cursor:pointer;text-decoration:underline}
+  .auth-authorised-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:999px;background:#eaf7ee;color:#0a6a2a}
+  .auth-pending-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:999px;background:#fff4e0;color:#a06a00}
+  .report-road-item.roadpending span{color:#a06a00}
+  .roadpending-mark{color:#a06a00;font-size:10.5px}
+
+  #geoModal{
+    position:fixed;inset:0;z-index:9999;
+    display:flex;align-items:flex-end;justify-content:center;
+    background:rgba(0,0,0,0.45);
+    animation:fadeIn .25s ease
+  }
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  .geo-sheet{
+    background:white;width:100%;max-width:480px;
+    border-radius:20px 20px 0 0;
+    padding:28px 24px 36px;
+    animation:slideUp .3s cubic-bezier(.22,.68,0,1.2)
+  }
+  @keyframes slideUp{from{transform:translateY(80px);opacity:0}to{transform:translateY(0);opacity:1}}
+  .geo-icon{font-size:44px;text-align:center;margin-bottom:12px}
+  .geo-sheet h2{font-size:20px;font-weight:800;color:#111;margin:0 0 8px;text-align:center}
+  .geo-sheet p{font-size:14px;color:#555;line-height:1.6;margin:0 0 22px;text-align:center}
+  .geo-btns{display:flex;flex-direction:column;gap:10px}
+  .geo-yes{
+    padding:15px;font-size:16px;font-weight:700;
+    background:#1a73e8;color:white;
+    border:none;border-radius:10px;cursor:pointer;
+    transition:background .15s
+  }
+  .geo-yes:active{background:#1558b0}
+  .geo-no{
+    padding:13px;font-size:14px;font-weight:500;
+    background:none;color:#777;border:none;cursor:pointer
+  }
+
+  .loc-pulse{
+    width:24px;height:24px;
+    background:rgba(26,115,232,0.25);
+    border:3px solid #1a73e8;border-radius:50%;
+    animation:pulse 2s ease-in-out infinite
+  }
+  @keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.4);opacity:.6}}
+
+  .start-icon{width:20px;height:20px;background:#15181d;border:3px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+  .park-icon{width:15px;height:15px;border:2.5px solid white;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,.4)}
+  .leaflet-popup-content b{color:#111}
+</style>
+</head><body>
+<div id="map"></div>
+
+<div id="geoModal">
+  <div class="geo-sheet">
+    <div class="geo-icon">📍</div>
+    <h2>Show your location?</h2>
+    <p>See where you are on the map while out canvassing. Your location stays on your device and is never shared.</p>
+    <div class="geo-btns">
+      <button class="geo-yes" onclick="requestLocation()">Yes, show my location</button>
+      <button class="geo-no" onclick="dismissModal()">Not now</button>
+    </div>
+  </div>
+</div>
+
+<div class="ctrl" id="ctrl">
+  <div class="ctrl-header" onclick="togglePanel()">
+    <h3>🗺 __WARD_NAME__ Ward Routes</h3>
+    <button class="ctrl-toggle" aria-label="Toggle panel">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+    </button>
+  </div>
+  <div class="ctrl-body">
+    <label>Select Route</label>
+    <select id="sel"><option value="all">— Show All Routes —</option></select>
+    <button id="locBtn" onclick="toggleLocation()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+      Show my location
+    </button>
+    <div id="info"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/backend.js"></script>
+<script>
+const DATA = __HTML_DATA__;
+// This ward's OWN live leaflet-map deployment -- reporting progress here
+// writes to (or proposes a change to) the SAME Data sheet that site reads,
+// through the SAME Apps Script backend. Not a separate tracker.
+const APPS_SCRIPT_URL = '__APPS_SCRIPT_URL__';
+const GOOGLE_CLIENT_ID = '__GOOGLE_CLIENT_ID__';
+
+const ROUTE_COLOR = {
+  A:'#2a78d6', B:'#eb6834', C:'#1baf7a', D:'#eda100',
+  E:'#e87ba4', F:'#008300', G:'#4a3aa7', H:'#e34948'
+};
+const KIND_LABEL = {walk:'Walk', hybrid:'Hybrid', drive:'Drive-to'};
+
+function difficulty(res) {
+  if (res < 180) return 'Very Easy';
+  if (res < 260) return 'Easy';
+  if (res < 340) return 'Moderate';
+  if (res < 420) return 'Hard';
+  return 'Very Hard';
+}
+
+const allRoutes = Object.keys(DATA.routesMeta).sort();
+
+/* ── Which route (if any) this page load is credentialed for.
+   The URL hash is a per-route secret word (e.g. #Aston), matched once
+   here at load time -- the app never rewrites the address bar
+   afterwards, so browsing other routes never overwrites or leaks this
+   page's own access word. Old sheets printed before this scheme (raw
+   route letters like #A) still work as a fallback. ── */
+function matchRouteFromHash(hashRaw) {
+  const h = (hashRaw || '').replace(/^#/, '').trim();
+  if (!h) return null;
+  const hLower = h.toLowerCase();
+  for (const key of allRoutes) {
+    const secret = DATA.routesMeta[key].secret;
+    if (secret && secret.toLowerCase() === hLower) return key;
+  }
+  const hUpper = h.toUpperCase();
+  return DATA.routesMeta[hUpper] ? hUpper : null;
+}
+const unlockedRouteId = matchRouteFromHash(window.location.hash);
+
+const map = L.map('map', {tap: true, tapTolerance: 15});
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  attribution:'© OpenStreetMap contributors', maxZoom:19
+}).addTo(map);
+
+/* ────────────────────────────────────────────
+   PROGRESS REPORTING
+   Writes directly to (or proposes a change to) this ward's own live
+   leaflet-map Data sheet via APPS_SCRIPT_URL -- see backend.js. Reporting
+   ANYTHING requires signing in with Google first (the backend needs a
+   verified email to decide authorised-direct vs pending-for-review; there
+   is no anonymous write path). Authorised status comes from that same
+   site's own "Authorised" sheet -- this app doesn't maintain its own list.
+──────────────────────────────────────────── */
+const auth = { signedIn: false, email: null, authorised: false, banned: false };
+
+// Per-device convenience cache only (not authoritative -- the Sheet is)
+// so a submitted/pending mark survives a page reload on the same device.
+function loadLocalMarks(routeId) {
+  try { return JSON.parse(localStorage.getItem('lfp:marks:' + DATA.ward + ':' + routeId)) || {}; } catch (e) { return {}; }
+}
+function saveLocalMarks(routeId, marks) { localStorage.setItem('lfp:marks:' + DATA.ward + ':' + routeId, JSON.stringify(marks)); }
+function roadMark(routeId, roadId) { return loadLocalMarks(routeId)[roadId] || null; } // null | "pending" | "done"
+function setRoadMark(routeId, roadId, mark) {
+  const m = loadLocalMarks(routeId);
+  if (mark) m[roadId] = mark; else delete m[roadId];
+  saveLocalMarks(routeId, m);
+}
+function isRoadDone(routeId, roadId) { return roadMark(routeId, roadId) === 'done'; }
+function isRoadPending(routeId, roadId) { return roadMark(routeId, roadId) === 'pending'; }
+
+function roadById(roadId) { return DATA.roads.find(r => r.id === roadId); }
+
+async function doSignIn() {
+  try {
+    await Auth.signIn(GOOGLE_CLIENT_ID);
+    const res = await Backend.verify(APPS_SCRIPT_URL);
+    if (!res.ok) { alert(res.error || 'Sign-in verification failed.'); return; }
+    auth.signedIn = true; auth.email = res.email; auth.authorised = !!res.authorised; auth.banned = !!res.banned;
+  } catch (e) {
+    alert('Sign-in failed: ' + e.message);
+  }
+  refreshReportPanelIfActive(currentSel);
+}
+function doSignOut() {
+  Auth.signOut();
+  auth.signedIn = false; auth.email = null; auth.authorised = false; auth.banned = false;
+  refreshReportPanelIfActive(currentSel);
+}
+
+async function setRoadDone(routeId, roadId, done) {
+  const road = roadById(roadId);
+  if (!road || road.rowIndex == null) { alert("This road isn't linked to a source row, so progress can't be reported for it."); return; }
+  if (!auth.signedIn) { alert('Sign in with Google first to report progress.'); return; }
+  if (auth.banned) { alert("This Google account isn't permitted to submit changes."); return; }
+
+  setRoadMark(routeId, roadId, done ? 'submitting' : null);
+  applyRoadVisual(routeId, roadId);
+  refreshReportPanelIfActive(routeId);
+
+  const result = await Backend.markRoadDone(APPS_SCRIPT_URL, road, auth.authorised, done);
+  if (!result.ok) {
+    setRoadMark(routeId, roadId, null);
+    alert(result.error || 'Could not report this road.');
+  } else {
+    setRoadMark(routeId, roadId, result.pending ? 'pending' : 'done');
+  }
+  applyRoadVisual(routeId, roadId);
+  refreshReportPanelIfActive(routeId);
+}
+function toggleRoadDone(routeId, roadId) { setRoadDone(routeId, roadId, !isRoadDone(routeId, roadId) && !isRoadPending(routeId, roadId)); }
+
+async function onToggleRouteComplete(routeId) {
+  if (!auth.signedIn) { alert('Sign in with Google first to report progress.'); return; }
+  if (auth.banned) { alert("This Google account isn't permitted to submit changes."); return; }
+  if (!confirm('Mark the whole of Route ' + routeId + ' as complete? This reports every road on it.')) return;
+
+  const roads = DATA.roads.filter(r => r.routeId === routeId && r.rowIndex != null);
+  roads.forEach(r => setRoadMark(routeId, r.id, 'submitting'));
+  roads.forEach(r => applyRoadVisual(routeId, r.id));
+  refreshReportPanelIfActive(routeId);
+
+  const result = await Backend.markRouteDone(APPS_SCRIPT_URL, roads, auth.authorised, true);
+  roads.forEach(r => setRoadMark(routeId, r.id, result.ok ? (auth.authorised ? 'done' : 'pending') : null));
+  roads.forEach(r => applyRoadVisual(routeId, r.id));
+  setLegendDone(routeId, result.ok && auth.authorised);
+  refreshReportPanelIfActive(routeId);
+  if (!result.ok) alert(`Reported ${result.succeeded}/${result.total} roads -- ` + (result.errors[0] || 'some failed, please retry.'));
+}
+
+function popupHtmlForRoad(r) {
+  let html = '<b>' + r.street + '</b><br>Route ' + r.routeId + ' — ' + DATA.routesMeta[r.routeId].name + '<br>' + Math.round(r.res) + ' estimated residences';
+  if (r.routeId === unlockedRouteId && r.rowIndex != null) {
+    const done = isRoadDone(r.routeId, r.id);
+    const pending = isRoadPending(r.routeId, r.id);
+    const label = pending ? '⏳ Awaiting review' : (done ? '↺ Undo — not done yet' : '✓ Mark this road done');
+    html += '<button class="popup-done-btn' + (done || pending ? ' undo' : '') + '" ' + (pending ? 'disabled' : '') +
+      ' onclick="toggleRoadDone(\'' + r.routeId + '\',\'' + r.id + '\')">' + label + '</button>';
+  }
+  return html;
+}
+
+/* ── Route road groups ── */
+const groups = {};
+const groupBounds = {};
+const groupInfo = {};
+const roadLayers = {};
+
+DATA.roads.forEach(r => {
+  const key = r.routeId;
+  if (!groups[key]) {
+    groups[key] = L.layerGroup();
+    groupBounds[key] = [];
+    groupInfo[key] = {res: 0, streets: []};
+  }
+  r.segments.forEach(seg => {
+    const poly = L.polyline(seg, {color: ROUTE_COLOR[key], weight:6, opacity:0.75});
+    poly._roadData = r;
+    poly.bindPopup(popupHtmlForRoad(r));
+    groups[key].addLayer(poly);
+    (roadLayers[r.id] = roadLayers[r.id] || []).push(poly);
+    seg.forEach(pt => groupBounds[key].push(pt));
+  });
+  groupInfo[key].res += r.res;
+  groupInfo[key].streets.push(r.street);
+});
+
+function doneAdjust(style, mark) {
+  if (!mark) return style;
+  if (mark === 'submitting') return Object.assign({}, style, {opacity: style.opacity * 0.7, dashArray: '4,4'});
+  return Object.assign({}, style, {opacity: style.opacity * 0.4, dashArray: '1,8'});
+}
+function applyRoadVisual(routeId, roadId) {
+  const layers = roadLayers[roadId];
+  if (!layers) return;
+  const mark = roadMark(routeId, roadId); // null | "submitting" | "pending" | "done"
+  let base;
+  if (currentSel === 'all') base = {weight:6, opacity:0.75};
+  else { const active = routeId === currentSel; base = {weight: active?7:4, opacity: active?0.95:0.18}; }
+  layers.forEach(layer => {
+    layer.setStyle(doneAdjust(base, mark));
+    if (layer.getPopup()) layer.setPopupContent(popupHtmlForRoad(layer._roadData));
+  });
+}
+
+/* ── Start + parking markers ── */
+function markerIcon(cls) { return L.divIcon({html:'<div class="'+cls+'"></div>', className:'', iconSize:[20,20], iconAnchor:[10,10]}); }
+
+const hubs = DATA.hubs && DATA.hubs.length ? DATA.hubs : [DATA.start];
+const multiHub = hubs.length > 1;
+const hubPts = [];
+hubs.forEach((hub, i) => {
+  const label = multiHub ? ('HUB ' + (i + 1)) : 'START';
+  L.marker([hub.lat, hub.lon], {icon: markerIcon('start-icon'), zIndexOffset: 900})
+    .bindPopup('<b>' + label + '</b><br>' + hub.label)
+    .addTo(map);
+  hubPts.push([hub.lat, hub.lon]);
+});
+
+const parkMarkers = {};
+allRoutes.forEach(key => {
+  const meta = DATA.routesMeta[key];
+  if (meta.marker) {
+    const m = L.marker([meta.marker.point[1], meta.marker.point[0]], {
+      icon: L.divIcon({html:'<div class="park-icon" style="background:'+ROUTE_COLOR[key]+'"></div>', className:'', iconSize:[15,15], iconAnchor:[7,7]}),
+      zIndexOffset: 800
+    }).bindPopup('<b>Route '+key+' — suggested parking</b><br>'+meta.marker.label+'<br><small>Not an official space — please use your own discretion.</small>');
+    parkMarkers[key] = m;
+  }
+});
+
+const sel = document.getElementById('sel');
+const info = document.getElementById('info');
+const legend = document.getElementById('legend');
+const legendItems = {};
+
+allRoutes.forEach(key => {
+  const meta = DATA.routesMeta[key];
+  const o = document.createElement('option');
+  o.value = key;
+  o.textContent = 'Route '+key+' — '+meta.name+'  ('+Math.round(meta.residences)+' res, '+KIND_LABEL[meta.kind]+')';
+  sel.appendChild(o);
+});
+
+allRoutes.forEach(key => {
+  const meta = DATA.routesMeta[key];
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  item.innerHTML = '<div class="legend-swatch" style="background:'+ROUTE_COLOR[key]+'"></div>'+
+    '<span class="lg-name">'+key+' — '+meta.name+'</span>'+
+    '<span class="lg-res">'+Math.round(meta.residences)+'</span>';
+  item.onclick = () => { sel.value = key; show(key); };
+  legend.appendChild(item);
+  legendItems[key] = item;
+});
+function setLegendDone(routeId, done) {
+  if (legendItems[routeId]) legendItems[routeId].classList.toggle('legend-done', done);
+}
+
+function authLineHtml() {
+  if (!auth.signedIn) {
+    return '<button class="auth-signin-btn" onclick="doSignIn()">' +
+      '<svg width="16" height="16" viewBox="0 0 48 48"><path fill="#4285F4" d="M45.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h11.8c-.5 2.7-2.1 5-4.4 6.6v5.5h7.1c4.2-3.9 6.6-9.6 6.6-16.6z"/><path fill="#34A853" d="M24 46c6 0 11-2 14.6-5.4l-7.1-5.5c-2 1.3-4.5 2.1-7.5 2.1-5.8 0-10.7-3.9-12.4-9.1H4.3v5.7C7.9 41.1 15.3 46 24 46z"/><path fill="#FBBC05" d="M11.6 28.1c-.4-1.3-.7-2.7-.7-4.1s.2-2.8.7-4.1v-5.7H4.3C2.8 17.1 2 20.5 2 24s.8 6.9 2.3 9.8l7.3-5.7z"/><path fill="#EA4335" d="M24 10.9c3.3 0 6.2 1.1 8.5 3.3l6.3-6.3C34.9 4.2 30 2 24 2 15.3 2 7.9 6.9 4.3 14.2l7.3 5.7c1.7-5.2 6.6-9 12.4-9z"/></svg>' +
+      'Sign in with Google to report progress</button>';
+  }
+  if (auth.banned) return '<div class="report-banner locked">🚫 This Google account isn\'t permitted to submit changes.</div>';
+  const tag = auth.authorised ? '<span class="auth-authorised-tag">Authorised editor</span>' : '<span class="auth-pending-tag">Suggests changes for review</span>';
+  return '<div class="auth-line"><span>✓ ' + auth.email + ' ' + tag + '</span><button class="auth-signout" onclick="doSignOut()">sign out</button></div>';
+}
+
+function buildReportPanelHtml(routeId) {
+  if (routeId !== unlockedRouteId) {
+    return unlockedRouteId
+      ? '<div class="report-banner locked">🔒 Read-only — this isn\'t the route on your printed sheet.</div>'
+      : '<div class="report-banner locked">🔒 Read-only — open the link or QR code from your printed route sheet to report progress here.</div>';
+  }
+  const roadsForRoute = DATA.roads.filter(r => r.routeId === routeId);
+  let html = authLineHtml();
+  if (!auth.signedIn || auth.banned) return html;
+
+  const marks = loadLocalMarks(routeId);
+  const allDone = roadsForRoute.every(r => r.rowIndex == null || marks[r.id] === 'done' || marks[r.id] === 'pending');
+  html += !auth.authorised
+    ? '<div class="report-banner locked">Not an authorised editor on this ward\'s tracker — your marks go to a reviewer instead of saving directly.</div>'
+    : '';
+  html += '<button class="report-complete-btn' + (allDone ? ' done' : '') + '" onclick="onToggleRouteComplete(\'' + routeId + '\')">' +
+    (allDone ? '✓ Whole route reported' : 'Mark whole route complete') + '</button>';
+  html += '<div class="report-roadlist-label">Or tick off roads individually</div>';
+  html += '<div class="report-roadlist">';
+  roadsForRoute.forEach(r => {
+    const mark = marks[r.id];
+    const done = mark === 'done', pending = mark === 'pending', submitting = mark === 'submitting';
+    const cls = 'report-road-item' + (done ? ' done' : '') + (pending ? ' roadpending' : '');
+    html += '<label class="' + cls + '">' +
+      '<input type="checkbox" ' + (done || pending ? 'checked' : '') + (pending || submitting || r.rowIndex == null ? ' disabled' : '') +
+      ' onchange="setRoadDone(\'' + routeId + '\',\'' + r.id + '\',this.checked)">' +
+      '<span>' + r.street + (pending ? ' <span class="roadpending-mark">⏳ awaiting review</span>' : '') + '</span></label>';
+  });
+  html += '</div>';
+  return html;
+}
+function refreshReportPanelIfActive(routeId) {
+  if (currentSel !== routeId) return;
+  const el = document.getElementById('reportPanel');
+  if (el) el.innerHTML = buildReportPanelHtml(routeId);
+}
+
+let currentSel = 'all';
+
+function show(g) {
+  currentSel = g;
+  Object.values(groups).forEach(l => map.removeLayer(l));
+  Object.values(parkMarkers).forEach(m => map.removeLayer(m));
+  info.innerHTML = '';
+
+  if (g === 'all') {
+    allRoutes.forEach(key => {
+      groups[key].addTo(map);
+      groups[key].eachLayer(layer => {
+        const mark = roadMark(layer._roadData.routeId, layer._roadData.id);
+        layer.setStyle(doneAdjust({weight:6, opacity:0.75}, mark));
+      });
+      if (parkMarkers[key]) parkMarkers[key].addTo(map);
+    });
+    const allPts = [].concat(...Object.values(groupBounds), hubPts);
+    if (allPts.length) map.fitBounds(allPts);
+  } else {
+    allRoutes.forEach(key => {
+      groups[key].addTo(map);
+      const active = key === g;
+      groups[key].eachLayer(layer => {
+        const mark = roadMark(layer._roadData.routeId, layer._roadData.id);
+        layer.setStyle(doneAdjust({weight: active?7:4, opacity: active?0.95:0.18}, mark));
+        if (active) layer.bringToFront();
+      });
+    });
+    if (parkMarkers[g]) parkMarkers[g].addTo(map);
+    if (groupBounds[g] && groupBounds[g].length) map.fitBounds(groupBounds[g], {padding:[40,40]});
+
+    const meta = DATA.routesMeta[g];
+    const streets = [...new Set(groupInfo[g].streets)].sort();
+    info.innerHTML =
+      '<div class="route-badge"><div class="route-swatch" style="background:'+ROUTE_COLOR[g]+'"></div><div class="route-num">Route '+g+'</div></div>'+
+      '<div class="route-name">'+meta.name+'</div>'+
+      '<div class="tag-row"><span class="tag">'+KIND_LABEL[meta.kind]+'</span><span class="tag">'+(meta.shape==='loop'?'Loop':'Out & back')+'</span></div>'+
+      '<div class="res-count">'+Math.round(meta.residences)+' estimated residences</div>'+
+      '<div class="difficulty">'+difficulty(meta.residences)+'</div>'+
+      '<div class="hint"><b>Start/parking:</b> '+meta.startHint+'</div>'+
+      (meta.notes ? '<div class="notes">'+meta.notes+'</div>' : '')+
+      '<div class="streets"><b>Streets:</b><br>'+streets.join(', ')+'</div>'+
+      '<div id="reportPanel"></div>';
+    document.getElementById('reportPanel').innerHTML = buildReportPanelHtml(g);
+  }
+}
+
+sel.onchange = e => { show(e.target.value); };
+
+/* Initial view: unlock and land on the route this page's URL is
+   credentialed for, if any -- otherwise show the whole-ward overview.
+   The address bar is never touched from here on. */
+if (unlockedRouteId) { sel.value = unlockedRouteId; show(unlockedRouteId); }
+else { sel.value = 'all'; show('all'); }
+
+/* ────────────────────────────────────────────
+   GEOLOCATION
+──────────────────────────────────────────── */
+let locationMarker = null;
+let locationCircle = null;
+let watchId = null;
+let locationActive = false;
+
+const locBtn = document.getElementById('locBtn');
+const geoModal = document.getElementById('geoModal');
+
+function dismissModal() {
+  geoModal.style.display = 'none';
+}
+
+function requestLocation() {
+  dismissModal();
+  startTracking();
+}
+
+function startTracking() {
+  if (!navigator.geolocation) {
+    alert('Geolocation is not supported by your browser.');
+    return;
+  }
+  locBtn.disabled = true;
+  locBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg> Locating…';
+
+  watchId = navigator.geolocation.watchPosition(
+    onLocationSuccess,
+    onLocationError,
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+}
+
+function stopTracking() {
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  if (locationMarker) { map.removeLayer(locationMarker); locationMarker = null; }
+  if (locationCircle) { map.removeLayer(locationCircle); locationCircle = null; }
+  locationActive = false;
+  locBtn.disabled = false;
+  locBtn.className = '';
+  locBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg> Show my location';
+}
+
+function toggleLocation() {
+  if (locationActive) { stopTracking(); }
+  else { startTracking(); }
+}
+
+function onLocationSuccess(pos) {
+  const lat = pos.coords.latitude;
+  const lng = pos.coords.longitude;
+  const acc = pos.coords.accuracy;
+
+  locBtn.disabled = false;
+  locBtn.className = 'active';
+  locBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg> Stop showing location';
+  locationActive = true;
+
+  if (locationCircle) {
+    locationCircle.setLatLng([lat, lng]).setRadius(acc);
+  } else {
+    locationCircle = L.circle([lat, lng], {
+      radius: acc, color: '#1a73e8', fillColor: '#1a73e8',
+      fillOpacity: 0.1, weight: 1, opacity: 0.4
+    }).addTo(map);
+  }
+
+  const iconHtml = '<div style="width:18px;height:18px;background:#1a73e8;border:3px solid white;border-radius:50%;box-shadow:0 2px 8px rgba(26,115,232,0.6)"></div>';
+  const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [18,18], iconAnchor: [9,9] });
+
+  if (locationMarker) {
+    locationMarker.setLatLng([lat, lng]);
+  } else {
+    locationMarker = L.marker([lat, lng], {icon, zIndexOffset: 1000})
+      .addTo(map)
+      .bindPopup('You are here<br><small>±' + Math.round(acc) + 'm accuracy</small>');
+    map.setView([lat, lng], Math.max(map.getZoom(), 16));
+  }
+}
+
+function onLocationError(err) {
+  locBtn.disabled = false;
+  locBtn.className = '';
+  locBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg> Show my location';
+  locationActive = false;
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+
+  let msg = 'Unable to get your location.';
+  if (err.code === 1) msg = 'Location access was denied. Please allow location in your browser settings.';
+  else if (err.code === 2) msg = 'Location unavailable. Please check your GPS signal.';
+  else if (err.code === 3) msg = 'Location request timed out.';
+  alert(msg);
+}
+
+if (!navigator.geolocation) {
+  geoModal.style.display = 'none';
+}
+
+/* ── Panel collapse ── */
+function togglePanel() {
+  document.getElementById('ctrl').classList.toggle('collapsed');
+}
+</script>
+</body></html>

@@ -1,0 +1,203 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leaflet Route Builder</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;font-family:'Segoe UI',system-ui,sans-serif;background:#f4f4f2;color:#15181d}
+  .wrap{max-width:900px;margin:0 auto;padding:24px 20px 80px}
+  h1{font-size:26px;font-weight:800;margin:4px 0 2px}
+  .subtitle{color:#5b6470;font-size:14px;margin-bottom:28px}
+  .step{background:white;border-radius:14px;box-shadow:0 2px 10px rgba(0,0,0,.06);padding:22px 24px;margin-bottom:18px}
+  .step.disabled{opacity:.45;pointer-events:none}
+  .step-num{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:#1a73e8;color:white;font-weight:700;font-size:13px;margin-right:10px}
+  .step h2{font-size:17px;font-weight:700;display:flex;align-items:center;margin:0 0 14px}
+  label{display:block;font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#5b6470;margin:14px 0 6px}
+  label:first-child{margin-top:0}
+  input[type=text],input[type=number],select{
+    width:100%;padding:10px 12px;font-size:14px;border:2px solid #e2e2e0;border-radius:8px;background:#fafafa;color:#111
+  }
+  input:focus,select:focus{outline:none;border-color:#1a73e8}
+  .hint{font-size:12px;color:#888;margin-top:4px;line-height:1.5}
+  .row{display:flex;gap:14px}
+  .row > *{flex:1}
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;padding:11px 20px;font-size:14px;font-weight:700;
+    background:#1a73e8;color:white;border:none;border-radius:8px;cursor:pointer;transition:background .15s
+  }
+  .btn:hover{background:#1558b0}
+  .btn:disabled{background:#bbb;cursor:default}
+  .btn.secondary{background:#eee;color:#222}
+  .btn.secondary:hover{background:#ddd}
+  .btn.green{background:#0a8a3a}
+  .btn.green:hover{background:#076e2e}
+  .btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  .radio-group{display:flex;flex-direction:column;gap:8px}
+  .radio-opt{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border:2px solid #e2e2e0;border-radius:8px;cursor:pointer}
+  .radio-opt.active{border-color:#1a73e8;background:#f0f6ff}
+  .radio-opt input{margin-top:3px}
+  .radio-opt-label{font-size:13.5px;font-weight:600}
+  .radio-opt-desc{font-size:11.5px;color:#888;margin-top:2px}
+  .log{background:#15181d;color:#c8f7d4;font-family:ui-monospace,monospace;font-size:12px;border-radius:8px;padding:12px 14px;margin-top:14px;max-height:180px;overflow-y:auto;white-space:pre-wrap;display:none}
+  .log.show{display:block}
+  .banner{border-radius:8px;padding:10px 14px;font-size:13px;margin-top:12px;display:none}
+  .banner.show{display:block}
+  .banner.error{background:#fdecea;color:#a02020}
+  .banner.ok{background:#eaf7ee;color:#0a6a2a}
+  .banner.info{background:#eef4fc;color:#1558b0}
+  .summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:14px 0}
+  .summary-tile{background:#f6f6f4;border-radius:10px;padding:12px 14px}
+  .summary-tile .num{font-size:22px;font-weight:800}
+  .summary-tile .lbl{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.04em}
+  iframe.preview{width:100%;height:520px;border:1px solid #ddd;border-radius:10px;margin-top:14px}
+  .route-list{margin-top:14px;font-size:12.5px;max-height:220px;overflow-y:auto;border-top:1px solid #eee;padding-top:8px}
+  .route-list .rl-item{display:flex;justify-content:space-between;padding:5px 2px;border-bottom:1px solid #f2f2f2}
+  .advanced-toggle{font-size:12.5px;color:#1a73e8;cursor:pointer;margin-top:10px;display:inline-block}
+  .advanced-body{display:none;margin-top:10px;padding-top:10px;border-top:1px solid #eee}
+  .advanced-body.show{display:block}
+  .col-map-issue{background:#fff8e6;border:1px solid #f0d787;border-radius:8px;padding:10px 12px;font-size:12.5px;margin-top:10px}
+  .col-map-issue select{margin-top:6px}
+  footer{text-align:center;color:#999;font-size:11.5px;margin-top:30px}
+</style>
+</head><body>
+<div class="wrap">
+  <h1>🗺 Leaflet Route Builder</h1>
+  <p class="subtitle">Turn a ward's road data into printable, walkable leaflet-delivery routes -- no installation needed, works from any Google Sheet.</p>
+
+  <div class="step" id="step1">
+    <h2><span class="step-num">1</span>Load your road data</h2>
+    <label>Link your live tracker site (recommended)</label>
+    <input type="text" id="trackerUrl" placeholder="https://yourname.github.io/leaflet-map/">
+    <div class="hint">The address of the ward's live leaflet-map site. Reads its data source, backend, and title automatically -- nothing else on this page needs filling in by hand.</div>
+    <div class="btn-row"><button class="btn" id="loadTrackerBtn">Load from tracker</button></div>
+
+    <span class="advanced-toggle" id="manualLoadToggle">⚙ Load from a plain Google Sheet instead</span>
+    <div class="advanced-body" id="manualLoadBody">
+      <label>Published CSV link</label>
+      <input type="text" id="csvUrl" placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?gid=…&output=csv">
+      <div class="hint">In your Sheet: File → Share → Publish to web → select the right tab → format <b>CSV</b> → Publish. Paste the link it gives you.</div>
+      <div class="btn-row">
+        <button class="btn" id="loadCsvBtn">Load data</button>
+        <button class="btn secondary" id="showSignInLoadBtn">My sheet isn't published -- sign in instead</button>
+      </div>
+      <div id="signInLoadPanel" style="display:none;margin-top:14px">
+        <label>Google Sheet link (any link you can open)</label>
+        <input type="text" id="sheetEditUrl" placeholder="https://docs.google.com/spreadsheets/d/…/edit#gid=…">
+        <div class="btn-row"><button class="btn" id="signInLoadBtn">Sign in with Google and load</button></div>
+      </div>
+    </div>
+    <div class="banner" id="loadBanner"></div>
+    <div class="col-map-issue" id="colMapIssue" style="display:none"></div>
+  </div>
+
+  <div class="step disabled" id="step2">
+    <h2><span class="step-num">2</span>Choose ward and route size</h2>
+    <label>Ward</label>
+    <select id="wardSelect"></select>
+
+    <div class="row">
+      <div>
+        <label>Target residences per route</label>
+        <input type="number" id="targetSize" value="150" min="30" step="10">
+        <div class="hint">~90 minutes of leafleting at ~100 homes/hour. Smaller = easier, more routes.</div>
+      </div>
+      <div>
+        <label>Ward size</label>
+        <select id="wardScale">
+          <option value="single">Compact -- one central start point</option>
+          <option value="multi">Large/rural -- split into local areas automatically</option>
+        </select>
+      </div>
+    </div>
+
+    <span class="advanced-toggle" id="advancedToggle">⚙ Advanced options</span>
+    <div class="advanced-body" id="advancedBody">
+      <div class="row">
+        <div><label>Min residences/route</label><input type="number" id="targetMin" placeholder="auto"></div>
+        <div><label>Max residences/route</label><input type="number" id="targetMax" placeholder="auto"></div>
+      </div>
+      <div class="row">
+        <div><label>Walk radius (m)</label><input type="number" id="walkRadius" value="700"></div>
+        <div><label>Hybrid radius (m)</label><input type="number" id="hybridRadius" value="1100"></div>
+      </div>
+    </div>
+
+    <label>Event start point</label>
+    <div class="radio-group" id="startPointGroup">
+      <label class="radio-opt active"><input type="radio" name="startMode" value="auto" checked>
+        <div><div class="radio-opt-label">Auto-pick the nearest pub (recommended)</div><div class="radio-opt-desc">Looked up from OpenStreetMap -- you'll be able to change it before building.</div></div>
+      </label>
+      <label class="radio-opt"><input type="radio" name="startMode" value="manual">
+        <div><div class="radio-opt-label">Enter a start point myself</div><div class="radio-opt-desc">Name, latitude, longitude.</div></div>
+      </label>
+    </div>
+    <div id="manualStartFields" style="display:none;margin-top:10px">
+      <label>Start point name</label><input type="text" id="manualStartName" placeholder="e.g. The Red Lion, High Street">
+      <div class="row">
+        <div><label>Latitude</label><input type="text" id="manualStartLat" placeholder="52.8123"></div>
+        <div><label>Longitude</label><input type="text" id="manualStartLon" placeholder="-2.1123"></div>
+      </div>
+    </div>
+    <div id="pubPickPanel" style="margin-top:10px"></div>
+
+    <div class="btn-row"><button class="btn" id="buildBtn">Build routes</button></div>
+    <div class="log" id="buildLog"></div>
+    <div class="banner" id="buildBanner"></div>
+  </div>
+
+  <div class="step disabled" id="step3">
+    <h2><span class="step-num">3</span>Review</h2>
+    <div class="summary-grid" id="summaryGrid"></div>
+    <iframe class="preview" id="previewFrame" title="Interactive route map preview"></iframe>
+    <div class="route-list" id="routeList"></div>
+  </div>
+
+  <div class="step disabled" id="step4">
+    <h2><span class="step-num">4</span>Connect this ward's live tracker (optional)</h2>
+    <label>This ward's Apps Script URL</label>
+    <input type="text" id="appsScriptUrl" placeholder="https://script.google.com/macros/s/…/exec">
+    <div class="hint">From the live leaflet-map site's own config (MAP_CONFIG.APPS_SCRIPT_URL in its index.html). In-app progress reports write straight to that ward's own Data sheet -- authorised editors write directly, everyone else's taps go to that site's normal pending-review queue. Leave blank to generate a read-only app with no reporting.</div>
+    <div class="btn-row"><button class="btn secondary" id="testBackendBtn">Test connection</button></div>
+    <div class="banner" id="backendTestBanner"></div>
+  </div>
+
+  <div class="step disabled" id="step5">
+    <h2><span class="step-num">5</span>Get your deliverables</h2>
+    <div class="btn-row">
+      <button class="btn green" id="downloadAppBtn">Download interactive app (.html)</button>
+      <button class="btn green" id="downloadSheetsBtn">Download &amp; print route sheets</button>
+    </div>
+
+    <label style="margin-top:22px">Publish straight to GitHub Pages</label>
+    <div class="row">
+      <div><label>Constituency / district</label><input type="text" id="constituencyName" placeholder="e.g. Stafford"></div>
+      <div><label>GitHub personal access token</label><input type="text" id="githubToken" placeholder="ghp_… (repo scope)"></div>
+    </div>
+    <div class="hint" id="publishTargetHint"></div>
+    <div class="hint">A fresh route plan should be generated close to the actual event day so it reflects the latest leafleted roads -- publishing here auto-deletes any previously published page over 14 days old, and tells you what it removed.</div>
+    <div class="btn-row"><button class="btn" id="publishBtn">Publish to GitHub Pages</button></div>
+    <div class="banner" id="publishBanner"></div>
+  </div>
+
+  <footer>Runs entirely in your browser. No data leaves your device except direct calls to OpenStreetMap and, if you choose, your own Google account.</footer>
+</div>
+
+<script src="js/geo.js"></script>
+<script src="js/csv.js"></script>
+<script src="js/colors.js"></script>
+<script src="js/vendor_qrcode.js"></script>
+<script src="js/graph.js"></script>
+<script src="js/cluster.js"></script>
+<script src="js/secretWords.js"></script>
+<script src="js/mapData.js"></script>
+<script src="js/pubs.js"></script>
+<script src="js/sheets.js"></script>
+<script src="js/tracker.js"></script>
+<script src="js/pipeline.js"></script>
+<script src="js/htmlApp.js"></script>
+<script src="js/printSheets.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/backend.js"></script>
+<script src="js/publish.js"></script>
+<script src="js/app.js"></script>
+</body></html>
