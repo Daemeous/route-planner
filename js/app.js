@@ -347,7 +347,8 @@ function updatePublishTargetHint() {
   }
   state.repoInfo = repoInfo;
   const constituency = $('constituencyName').value.trim() || 'district';
-  const filename = `${slugify(constituency)}-${slugify(state.ward || 'ward')}.html`;
+  const ward = state.ward || $('wardSelect').value || 'ward';
+  const filename = `${slugify(constituency)}-${slugify(ward)}.html`;
   el.innerHTML = `Will publish to: <b>${Publish.pagesUrlFor(repoInfo, filename)}</b>`;
 }
 $('constituencyName').addEventListener('input', updatePublishTargetHint);
