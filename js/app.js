@@ -23,6 +23,10 @@ function setBanner(el, kind, text) {
   el.className = `banner show ${kind}`;
   el.textContent = text;
 }
+function setBannerHtml(el, kind, html) {
+  el.className = `banner show ${kind}`;
+  el.innerHTML = html;
+}
 function clearBanner(el) { el.className = 'banner'; el.textContent = ''; }
 function logLine(el, text) {
   el.classList.add('show');
@@ -30,6 +34,7 @@ function logLine(el, text) {
   el.scrollTop = el.scrollHeight;
 }
 function enableStep(id) { $(id).classList.remove('disabled'); }
+function scrollToStep(id) { $(id).scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 
 // ── Step 1: load data ──
 async function loadRowsFromCsv(url) {
@@ -94,27 +99,60 @@ function fillConstituencyGuess() {
   updatePublishTargetHint();
 }
 
+$('manualTrackerToggle').onclick = () => $('manualTrackerBody').classList.toggle('show');
 $('manualLoadToggle').onclick = () => $('manualLoadBody').classList.toggle('show');
+
+const LAST_AREA_KEY = 'lrp:lastArea';
+
+async function loadFromTrackerUrl(url, areaLabel) {
+  const banner = $('loadBanner');
+  setBanner(banner, 'info', 'Reading tracker config…');
+  const cfg = await Tracker.fetchTrackerConfig(url);
+  state.appsScriptUrl = cfg.appsScriptUrl;
+  if (cfg.googleClientId) state.googleClientId = cfg.googleClientId;
+  if (cfg.appsScriptUrl) { $('appsScriptUrl').value = cfg.appsScriptUrl; enableStep('step4'); }
+  updateTrackerConnectionUI();
+  setBanner(banner, 'info', `Found "${cfg.title || 'this deployment'}"'s data source -- loading…`);
+  const loaded = await loadRowsFromCsv(cfg.csvUrl);
+  applyLoadedData(loaded);
+  if (cfg.title) $('constituencyName').value = cfg.title;
+  const backendNote = cfg.appsScriptUrl ? ' Its live tracker backend is connected too, so reporting works out of the box.' : '';
+  setBanner(banner, 'ok',
+    `Loaded ${loaded.rows.length} roads across ${loaded.wards.length} ward(s) from "${cfg.title || url}".${backendNote}`);
+  try { localStorage.setItem(LAST_AREA_KEY, JSON.stringify({ label: areaLabel || cfg.title || url, url })); } catch (e) {}
+  scrollToStep('step2');
+}
+
+async function populateDeploymentDropdown() {
+  const sel = $('deploymentSelect');
+  try {
+    const list = await Tracker.fetchDeploymentRegistry();
+    let lastUrl = null;
+    try { lastUrl = JSON.parse(localStorage.getItem(LAST_AREA_KEY) || 'null'); } catch (e) {}
+    sel.innerHTML = '<option value="">— Choose your area —</option>' +
+      list.map(d => `<option value="${d.url}"${lastUrl && lastUrl.url === d.url ? ' selected' : ''}>${d.name}</option>`).join('');
+  } catch (e) {
+    sel.innerHTML = '<option value="">Couldn\'t load the list -- use the link option below</option>';
+    $('manualTrackerBody').classList.add('show');
+  }
+}
+populateDeploymentDropdown();
+
+$('loadDeploymentBtn').onclick = async () => {
+  const sel = $('deploymentSelect');
+  const url = sel.value;
+  const banner = $('loadBanner');
+  if (!url) { setBanner(banner, 'error', 'Pick your area from the list first.'); return; }
+  try { await loadFromTrackerUrl(url, sel.options[sel.selectedIndex].textContent); }
+  catch (e) { setBanner(banner, 'error', e.message); }
+};
 
 $('loadTrackerBtn').onclick = async () => {
   const url = $('trackerUrl').value.trim();
   const banner = $('loadBanner');
   if (!url) { setBanner(banner, 'error', 'Paste your tracker site\'s link first.'); return; }
-  setBanner(banner, 'info', 'Reading tracker config…');
-  try {
-    const cfg = await Tracker.fetchTrackerConfig(url);
-    state.appsScriptUrl = cfg.appsScriptUrl;
-    if (cfg.googleClientId) state.googleClientId = cfg.googleClientId;
-    if (cfg.appsScriptUrl) { $('appsScriptUrl').value = cfg.appsScriptUrl; enableStep('step4'); }
-    updateTrackerConnectionUI();
-    setBanner(banner, 'info', `Found "${cfg.title || 'this deployment'}"'s data source -- loading…`);
-    const loaded = await loadRowsFromCsv(cfg.csvUrl);
-    applyLoadedData(loaded);
-    if (cfg.title) $('constituencyName').value = cfg.title;
-    const backendNote = cfg.appsScriptUrl ? ' Its live tracker backend is connected too, so reporting works out of the box.' : '';
-    setBanner(banner, 'ok',
-      `Loaded ${loaded.rows.length} roads across ${loaded.wards.length} ward(s) from "${cfg.title || url}".${backendNote}`);
-  } catch (e) { setBanner(banner, 'error', e.message); }
+  try { await loadFromTrackerUrl(url); }
+  catch (e) { setBanner(banner, 'error', e.message); }
 };
 
 $('loadCsvBtn').onclick = async () => {
@@ -210,9 +248,15 @@ async function onWardOrStartModeChange() {
 
 function pubLookupFallbackHtml(errorDetail) {
   const reason = errorDetail ? `Couldn't look up pubs (${errorDetail}).` : "No pubs found nearby.";
-  return `<div class="hint">${reason} Use "Enter a start point myself" below --
-    search "&lt;pub name&gt; &lt;town&gt; latitude longitude" on Google, and its AI answer will give you
+  return `<div class="hint">${reason}
+    <button class="btn secondary" style="margin-top:8px" onclick="switchToManualStart()">Enter a start point myself instead</button><br><br>
+    Search "&lt;pub name&gt; &lt;town&gt; latitude longitude" on Google, and its AI answer will give you
     coordinates to paste straight in.</div>`;
+}
+
+function switchToManualStart() {
+  document.querySelector('input[name=startMode][value=manual]').click();
+  $('manualStartName').focus();
 }
 
 function currentClusterOpts() {
@@ -281,6 +325,7 @@ $('buildBtn').onclick = async () => {
     enableStep('step3'); enableStep('step4'); enableStep('step5');
     updateTrackerConnectionUI();
     updatePublishTargetHint();
+    scrollToStep('step3');
   } catch (e) {
     setBanner(banner, 'error', e.message);
     console.error(e);
@@ -403,19 +448,46 @@ $('publishBtn').onclick = async () => {
   try {
     const result = await Publish.publishWard({ constituency, ward: state.ward, htmlContent: buildAppHtml() });
     state.appUrl = result.url;
-    let msg = `Published: ${result.url}`;
+    let cleanupNote = '';
     if (result.cleanedUp && result.cleanedUp.length) {
-      msg += ` — cleaned up ${result.cleanedUp.length} page(s) over ${Publish.MAX_AGE_DAYS} days old: ` +
-        result.cleanedUp.map(c => c.ward || c.filename).join(', ') +
+      cleanupNote = ` Also cleaned up ${result.cleanedUp.length} page(s) over ${Publish.MAX_AGE_DAYS} days old: ` +
+        escHtml(result.cleanedUp.map(c => c.ward || c.filename).join(', ')) +
         `. Reminder: generate a fresh route plan close to the actual event day, not weeks ahead -- it needs an up-to-date picture of which roads are already done to avoid double-leafleting.`;
     }
-    setBanner(banner, 'ok', msg);
+    renderPublishedBanner(banner, result.url, cleanupNote, 'checking');
+    pollUntilLive(result.url, live => renderPublishedBanner(banner, result.url, cleanupNote, live ? 'live' : 'slow'));
   } catch (e) {
     setBanner(banner, 'error', e.message);
   } finally {
     $('publishBtn').disabled = false;
   }
 };
+
+function escHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+function renderPublishedBanner(banner, url, cleanupNote, status) {
+  const link = `<a href="${escHtml(url)}" target="_blank" rel="noopener">${escHtml(url)}</a>`;
+  const statusLine = {
+    checking: '⏳ Publishing usually takes GitHub Pages a minute or two to go live -- checking automatically, no need to keep refreshing yourself…',
+    live: '✓ It\'s live now!',
+    slow: "⏳ Still building after a couple of minutes -- unusual, but the link will work once it's ready. Try it again shortly.",
+  }[status];
+  setBannerHtml(banner, 'ok', `Published: ${link}<br>${statusLine}${cleanupNote}`);
+}
+
+// Same-origin fetch (the published page lives on the same daemeous.github.io
+// host as this tool) -- no GitHub API or token needed to know when it's up,
+// just ask for the page itself until it stops 404ing.
+async function pollUntilLive(url, onUpdate, { intervalMs = 6000, maxAttempts = 20 } = {}) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    await new Promise(r => setTimeout(r, intervalMs));
+    try {
+      const res = await fetch(`${url}?_check=${Date.now()}`, { cache: 'no-store' });
+      if (res.ok) { onUpdate(true); return; }
+    } catch (e) { /* keep polling */ }
+  }
+  onUpdate(false);
+}
 
 // ── Load the app viewer template once, up front ──
 fetch('app_template.html').then(r => r.text()).then(t => { window.__APP_TEMPLATE__ = t; })

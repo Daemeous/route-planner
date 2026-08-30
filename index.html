@@ -46,6 +46,7 @@
   .banner.error{background:#fdecea;color:#a02020}
   .banner.ok{background:#eaf7ee;color:#0a6a2a}
   .banner.info{background:#eef4fc;color:#1558b0}
+  .banner a{color:inherit;font-weight:700;text-decoration:underline;word-break:break-all}
   .summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:14px 0}
   .summary-tile{background:#f6f6f4;border-radius:10px;padding:12px 14px}
   .summary-tile .num{font-size:22px;font-weight:800}
@@ -67,24 +68,31 @@
 
   <div class="step" id="step1">
     <h2><span class="step-num">1</span>Load your road data</h2>
-    <label>Link your live tracker site (recommended)</label>
-    <input type="text" id="trackerUrl" placeholder="https://yourname.github.io/leaflet-map/">
-    <div class="hint">The address of the ward's live leaflet-map site. Reads its data source, backend, and title automatically -- nothing else on this page needs filling in by hand.</div>
-    <div class="btn-row"><button class="btn" id="loadTrackerBtn">Load from tracker</button></div>
+    <label>Your area</label>
+    <select id="deploymentSelect" aria-label="Your area"><option value="">Loading list of areas…</option></select>
+    <div class="btn-row"><button class="btn" id="loadDeploymentBtn">Load</button></div>
 
-    <span class="advanced-toggle" id="manualLoadToggle">⚙ Load from a plain Google Sheet instead</span>
-    <div class="advanced-body" id="manualLoadBody">
-      <label>Published CSV link</label>
-      <input type="text" id="csvUrl" placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?gid=…&output=csv">
-      <div class="hint">In your Sheet: File → Share → Publish to web → select the right tab → format <b>CSV</b> → Publish. Paste the link it gives you.</div>
-      <div class="btn-row">
-        <button class="btn" id="loadCsvBtn">Load data</button>
-        <button class="btn secondary" id="showSignInLoadBtn">My sheet isn't published -- sign in instead</button>
-      </div>
-      <div id="signInLoadPanel" style="display:none;margin-top:14px">
-        <label>Google Sheet link (any link you can open)</label>
-        <input type="text" id="sheetEditUrl" placeholder="https://docs.google.com/spreadsheets/d/…/edit#gid=…">
-        <div class="btn-row"><button class="btn" id="signInLoadBtn">Sign in with Google and load</button></div>
+    <span class="advanced-toggle" id="manualTrackerToggle">⚙ My area isn't listed, or I have my own tracker link</span>
+    <div class="advanced-body" id="manualTrackerBody">
+      <label>Link your live tracker site</label>
+      <input type="text" id="trackerUrl" placeholder="https://yourname.github.io/leaflet-map/">
+      <div class="hint">The address of the ward's live leaflet-map site. Reads its data source, backend, and title automatically -- nothing else on this page needs filling in by hand.</div>
+      <div class="btn-row"><button class="btn" id="loadTrackerBtn">Load from tracker</button></div>
+
+      <span class="advanced-toggle" id="manualLoadToggle">⚙ Load from a plain Google Sheet instead</span>
+      <div class="advanced-body" id="manualLoadBody">
+        <label>Published CSV link</label>
+        <input type="text" id="csvUrl" placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?gid=…&output=csv">
+        <div class="hint">In your Sheet: File → Share → Publish to web → select the right tab → format <b>CSV</b> → Publish. Paste the link it gives you.</div>
+        <div class="btn-row">
+          <button class="btn" id="loadCsvBtn">Load data</button>
+          <button class="btn secondary" id="showSignInLoadBtn">My sheet isn't published -- sign in instead</button>
+        </div>
+        <div id="signInLoadPanel" style="display:none;margin-top:14px">
+          <label>Google Sheet link (any link you can open)</label>
+          <input type="text" id="sheetEditUrl" placeholder="https://docs.google.com/spreadsheets/d/…/edit#gid=…">
+          <div class="btn-row"><button class="btn" id="signInLoadBtn">Sign in with Google and load</button></div>
+        </div>
       </div>
     </div>
     <div class="banner" id="loadBanner"></div>

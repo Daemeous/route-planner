@@ -31,6 +31,28 @@ const Tracker = (() => {
     return found;
   }
 
+  // Registry of known deployments this tool ships against, maintained
+  // alongside the leaflet-map family itself so a new constituency shows up
+  // here without anyone needing to paste a URL -- see that repo's README.
+  const REGISTRY_URL = 'https://daemeous.github.io/leaflet-map/deployments.json';
+
+  // Returns [{name, url}, ...]. Throws with a clear reason on failure --
+  // callers should fall back to manual URL entry, never leave the picker
+  // silently empty.
+  async function fetchDeploymentRegistry(registryUrl = REGISTRY_URL) {
+    let res;
+    try {
+      res = await fetch(registryUrl);
+    } catch (e) {
+      throw new Error(`Couldn't reach the list of areas (${e.message}).`);
+    }
+    if (!res.ok) throw new Error(`Couldn't load the list of areas (HTTP ${res.status}).`);
+    const data = await res.json();
+    const list = Array.isArray(data) ? data : data.deployments;
+    if (!Array.isArray(list)) throw new Error("The list of areas came back in an unexpected format.");
+    return list;
+  }
+
   // Returns {sheetId, sheetGid, appsScriptUrl, googleClientId, title,
   // subtitle, csvUrl} or throws with a clear reason.
   async function fetchTrackerConfig(trackerUrl) {
@@ -57,7 +79,7 @@ const Tracker = (() => {
     };
   }
 
-  return { fetchTrackerConfig, parseConfigBlock, normaliseIndexUrl };
+  return { fetchTrackerConfig, fetchDeploymentRegistry, parseConfigBlock, normaliseIndexUrl, REGISTRY_URL };
 })();
 
 if (typeof module !== 'undefined') module.exports = Tracker;
