@@ -210,6 +210,26 @@ $('coordPaste').addEventListener('input', () => {
   setBanner(banner, 'ok', `Parsed: ${parsed.lat}, ${parsed.lon} -- check it looks right below, or edit either field directly.`);
 });
 
+$('coordPasteToggle').onclick = () => $('coordPasteBody').classList.toggle('show');
+
+$('openMapPickerBtn').onclick = () => {
+  const ward = $('wardSelect').value;
+  if (!ward) { setBanner($('coordBanner'), 'error', 'Pick a ward first (step above).'); return; }
+
+  const wardRoads = Graph.loadRoads(state.rows.filter(r => r.wardName === ward), { ward });
+  const [latMin, lonMin, latMax, lonMax] = Pipeline.bboxOfRoads(wardRoads);
+
+  const curLat = parseFloat($('manualStartLat').value);
+  const curLon = parseFloat($('manualStartLon').value);
+  const initial = (isFinite(curLat) && isFinite(curLon)) ? [curLat, curLon] : null;
+
+  MapPicker.open({ roads: wardRoads, bounds: { latMin, lonMin, latMax, lonMax }, initial }, (lat, lon) => {
+    $('manualStartLat').value = lat.toFixed(6);
+    $('manualStartLon').value = lon.toFixed(6);
+    setBanner($('coordBanner'), 'ok', `Set from the map: ${lat.toFixed(6)}, ${lon.toFixed(6)}`);
+  });
+};
+
 $('wardScale').onchange = onWardOrStartModeChange;
 $('wardSelect').onchange = () => { fillConstituencyGuess(); onWardOrStartModeChange(); };
 
