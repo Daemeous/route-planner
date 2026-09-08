@@ -109,13 +109,6 @@ const MapData = (() => {
     return route;
   }
 
-  // Every road's full geometry (not just the undelivered slice a route
-  // owns) so print sheets can draw the surrounding street network for
-  // orientation, even roads no route touches at all.
-  function contextGeometry(roads) {
-    return Object.values(roads).map(r => r.fullGeometry);
-  }
-
   function boundsOf(routesOut) {
     const allPts = [];
     for (const r of routesOut) for (const rd of r.roads) for (const seg of rd.geometry) allPts.push(...seg);
@@ -133,7 +126,6 @@ const MapData = (() => {
       routes: routesOut,
       start: { point: eventStart, label: pubLabel },
       bounds: boundsOf(routesOut),
-      contextRoads: contextGeometry(roads),
     };
   }
 
@@ -158,11 +150,10 @@ const MapData = (() => {
       hubs: hubsOut,
       start: { point: hubsOut[0].point, label: hubsOut[0].label },
       bounds: boundsOf(routesOut),
-      contextRoads: contextGeometry(roads),
     };
   }
 
-  return { genIds, routeName, startHintText, routeFromCluster, buildMapData, buildMapDataMultihub, contextGeometry };
+  return { genIds, routeName, startHintText, routeFromCluster, buildMapData, buildMapDataMultihub };
 })();
 
 if (typeof module !== 'undefined') module.exports = MapData;

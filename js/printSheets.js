@@ -1,9 +1,14 @@
 // Printable route sheets -- an HTML/CSS equivalent of pipeline/build_docx.py's
 // cover page + one page per route. Designed for the browser's own
 // Print/Save-as-PDF rather than a .docx file, so no server-side rendering
-// or extra library is needed -- open it, print it. Includes a lightweight
-// inline-SVG mini-map per route (projected directly from the route's own
-// road geometry) since there's no static-map renderer available in-browser.
+// or extra library is needed -- open it, print it. The cover page's ward
+// overview stays a lightweight inline SVG (see makeProjector/overviewSvg),
+// but each route's own mini-map is a live Leaflet map on CARTO's "Positron"
+// tiles, with the route's own roads labelled directly on top of it --
+// street names/POIs from the tile itself, plus guaranteed labels for the
+// route's own roads (tile providers routinely skip labelling short
+// residential roads/cul-de-sacs at this zoom), beat the flat, unlabelled
+// schematic this used to render.
 'use strict';
 if (typeof require !== 'undefined') {
   if (typeof Geo === 'undefined') global.Geo = require('./geo');
@@ -35,7 +40,9 @@ const PrintSheets = (() => {
   function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
   // Simple equirectangular projection into an SVG viewBox, y-flipped so
-  // north is up. Returns {project(lon,lat) -> [x,y], viewBox}.
+  // north is up. Returns {project(lon,lat) -> [x,y], viewBox}. Only used
+  // for the cover page's whole-ward overview now -- individual route
+  // sheets use a live Leaflet map instead (see buildRouteMapSpec).
   function makeProjector(points, size = 600, padFrac = 0.08) {
     const lons = points.map(p => p[0]), lats = points.map(p => p[1]);
     const lonMin = Math.min(...lons), lonMax = Math.max(...lons);
@@ -56,55 +63,31 @@ const PrintSheets = (() => {
     return { project, width: w + 2 * pad, height: h + 2 * pad };
   }
 
+  function lonLatToLatLng([lon, lat]) { return [lat, lon]; }
+
   // wardStart is the ward/hub's event-start point, used as a fallback hub
   // marker for routes that don't carry their own (single-hub walk routes,
   // which have neither route.hub nor route.marker) -- without it those
-  // sheets show a route floating with no reference point at all.
-  function routeMiniMapSvg(route, color, contextRoads, wardStart, size = 560) {
-    const allPts = [];
-    for (const rd of route.roads) for (const seg of rd.geometry) allPts.push(...seg);
-    if (route.marker) allPts.push(route.marker.point);
-    if (route.hub) allPts.push(route.hub.point);
-    else if (wardStart) allPts.push(wardStart.point);
-    if (!allPts.length) return '';
-    const { project, width, height } = makeProjector(allPts, size);
-
-    // Nearby roads the route doesn't cover, drawn underneath in light grey
-    // purely for orientation -- the printed sheet used to show the route's
-    // own roads floating in blank space with nothing around them.
-    let contextPaths = '';
-    if (contextRoads) {
-      for (const geom of contextRoads) {
-        for (const seg of geom) {
-          if (seg.length < 2) continue;
-          const d = seg.map((p, i) => `${i === 0 ? 'M' : 'L'}${project(p).join(',')}`).join(' ');
-          contextPaths += `<path d="${d}" fill="none" stroke="#dcdcd7" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
-        }
-      }
-    }
-
-    let paths = '';
-    for (const rd of route.roads) {
-      for (const seg of rd.geometry) {
-        if (seg.length < 2) continue;
-        const d = seg.map((p, i) => `${i === 0 ? 'M' : 'L'}${project(p).join(',')}`).join(' ');
-        paths += `<path d="${d}" fill="none" stroke="${color}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>`;
-      }
-    }
-    let markers = '';
-    if (route.hub) {
-      const [x, y] = project(route.hub.point);
-      markers += `<circle cx="${x}" cy="${y}" r="7" fill="#15181d" stroke="white" stroke-width="2.5"/>`;
-    } else if (wardStart) {
-      const [x, y] = project(wardStart.point);
-      markers += `<circle cx="${x}" cy="${y}" r="7" fill="#15181d" stroke="white" stroke-width="2.5"/>`;
-    }
-    if (route.marker) {
-      const [x, y] = project(route.marker.point);
-      markers += `<circle cx="${x}" cy="${y}" r="5.5" fill="${color}" stroke="white" stroke-width="2"/>`;
-    }
-    return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">` +
-      `<rect width="100%" height="100%" fill="#fbfbf9"/>${contextPaths}${paths}${markers}</svg>`;
+  // sheets show a route with no reference point at all.
+  //
+  // Returns a plain-data spec (JSON-serialisable) describing everything
+  // the in-browser init script needs to draw one route's map: it's built
+  // here, server/build-side, from the route's own road data, then handed
+  // to the browser rather than reaching back into `route` there.
+  function buildRouteMapSpec(route, color, wardStart) {
+    const roads = route.roads.map(rd => ({
+      name: rd.name,
+      segments: rd.geometry.filter(seg => seg.length >= 2).map(seg => seg.map(lonLatToLatLng)),
+    }));
+    const hubPoint = route.hub ? route.hub.point : (wardStart ? wardStart.point : null);
+    const hubLabel = route.hub ? route.hub.label : (wardStart ? wardStart.label : null);
+    return {
+      id: route.id,
+      color,
+      roads,
+      hub: hubPoint ? { point: lonLatToLatLng(hubPoint), label: hubLabel } : null,
+      marker: route.marker ? { point: lonLatToLatLng(route.marker.point), label: route.marker.label } : null,
+    };
   }
 
   function qrSvg(url, cellSize = 4) {
@@ -194,27 +177,128 @@ const PrintSheets = (() => {
         </div>
       </div>
       <div class="route-body">
-        <div class="route-map">${routeMiniMapSvg(route, color, opts.contextRoads, opts.wardStart)}</div>
+        <div class="route-map"><div class="leaflet-mini-map" id="map-${esc(route.id)}"></div></div>
         <div class="route-info">
-          <div class="route-difficulty">${difficulty(route.residencesTotal, opts.targetMin, opts.targetMax)}</div>
-          <div class="route-map-note">Grey roads are shown for orientation only — the black dot is the start point. Only deliver the streets listed below.</div>
-          <div class="route-hint"><b>Start/parking:</b> ${esc(route.startHint)}</div>
-          ${route.notes ? `<div class="route-notes">${esc(route.notes)}</div>` : ''}
-          <div class="route-streets"><b>Streets (${streets.length}):</b><br>${streets.map(esc).join(', ')}</div>
+          <div class="route-info-main">
+            <div class="route-difficulty">${difficulty(route.residencesTotal, opts.targetMin, opts.targetMax)}</div>
+            <div class="route-map-note">Only deliver the streets listed below — other roads on the map are shown for orientation only. The black dot marks the start point.</div>
+            <div class="route-hint"><b>Start/parking:</b> ${esc(route.startHint)}</div>
+            ${route.notes ? `<div class="route-notes">${esc(route.notes)}</div>` : ''}
+            <div class="route-streets"><b>Streets (${streets.length}):</b><br>${streets.map(esc).join(', ')}</div>
+          </div>
           <div class="route-qr">${qrSvg(url)}<div class="route-qr-url">${esc(url)}</div></div>
         </div>
       </div>
     </section>`;
   }
 
+  // The in-browser script that turns each route's `buildRouteMapSpec()`
+  // output into an actual Leaflet map: tiles, the route's own roads, a
+  // label per road (rotated to follow it, offset to the side so it isn't
+  // sitting on top of the line), and hub/parking markers. Also gates the
+  // print button on every map's tiles having actually loaded -- printing
+  // (or Save-as-PDF) while tiles are still mid-fetch would bake in blank
+  // grey squares instead of the basemap.
+  function mapInitScript(specs) {
+    const specsJson = JSON.stringify(specs).replace(/</g, '\\u003c');
+    return `<script>
+(function() {
+  var specs = ${specsJson};
+  var printBtn = document.getElementById('printBtn');
+  var total = specs.length, loaded = 0, ready = false;
+  function enablePrint() {
+    if (ready) return;
+    ready = true;
+    printBtn.disabled = false;
+    printBtn.textContent = 'Print / Save as PDF';
+  }
+  if (total === 0) enablePrint();
+  setTimeout(enablePrint, 8000); // fallback in case a tile request stalls
+
+  function escHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function labelAngleDeg(map, a, b) {
+    var pa = map.latLngToLayerPoint(a), pb = map.latLngToLayerPoint(b);
+    var angle = Math.atan2(pb.y - pa.y, pb.x - pa.x) * 180 / Math.PI;
+    if (angle > 90) angle -= 180;
+    if (angle < -90) angle += 180;
+    return angle;
+  }
+  function longestSegment(segments) {
+    var best = segments[0], bestLen = -1;
+    for (var i = 0; i < segments.length; i++) {
+      var seg = segments[i], len = 0;
+      for (var j = 1; j < seg.length; j++) {
+        var dy = seg[j][0] - seg[j - 1][0], dx = seg[j][1] - seg[j - 1][1];
+        len += Math.sqrt(dx * dx + dy * dy);
+      }
+      if (len > bestLen) { bestLen = len; best = seg; }
+    }
+    return best;
+  }
+
+  specs.forEach(function (spec) {
+    var map = L.map('map-' + spec.id, { zoomControl: false, attributionControl: true });
+    var tiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      subdomains: 'abcd',
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    }).addTo(map);
+    tiles.on('load', function () { loaded++; if (loaded >= total) enablePrint(); });
+
+    var allPts = [];
+    spec.roads.forEach(function (r) {
+      r.segments.forEach(function (seg) {
+        if (seg.length < 2) return;
+        L.polyline(seg, { color: spec.color, weight: 4.5, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+        allPts = allPts.concat(seg);
+      });
+    });
+    if (spec.hub) allPts.push(spec.hub.point);
+    if (spec.marker) allPts.push(spec.marker.point);
+    if (!allPts.length) return;
+    map.fitBounds(L.latLngBounds(allPts), { padding: [24, 24] });
+
+    map.whenReady(function () {
+      spec.roads.forEach(function (r) {
+        var seg = longestSegment(r.segments);
+        if (!seg || seg.length < 2) return;
+        var mid = Math.floor((seg.length - 1) / 2);
+        var a = seg[mid], b = seg[mid + 1] || seg[mid - 1];
+        var angle = labelAngleDeg(map, L.latLng(a), L.latLng(b));
+        var transform = 'translate(-50%,-50%) rotate(' + angle + 'deg) translate(0,-9px)';
+        var html = '<span class="road-label" style="transform:' + transform + '">' + escHtml(r.name) + '</span>';
+        L.marker(a, { icon: L.divIcon({ className: '', html: html, iconSize: [0, 0] }), interactive: false, keyboard: false }).addTo(map);
+      });
+      if (spec.hub) {
+        L.marker(spec.hub.point, { icon: L.divIcon({ className: 'start-dot', iconSize: [14, 14] }) })
+          .addTo(map).bindTooltip(escHtml(spec.hub.label || 'Start'), { permanent: false });
+      }
+      if (spec.marker) {
+        var parkingHtml = '<span style="display:block;width:100%;height:100%;border-radius:50%;background:' + spec.color + ';border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.2);"></span>';
+        L.marker(spec.marker.point, { icon: L.divIcon({ className: '', html: parkingHtml, iconSize: [12, 12] }) })
+          .addTo(map).bindTooltip(escHtml(spec.marker.label || 'Parking'), { permanent: false });
+      }
+    });
+  });
+})();
+<\/script>`;
+  }
+
   function buildPrintableHtml(data, wardName, appUrlBase, opts = {}) {
     const targetMin = opts.targetMin ?? 150, targetMax = opts.targetMax ?? 450;
     const colorsMap = Colors.routeColors(data.routes.map(r => r.id));
     const cover = coverPageHtml(data, wardName);
-    const pages = data.routes.map(r => routePageHtml(r, colorsMap[r.id], appUrlBase, wardName, { targetMin, targetMax, contextRoads: data.contextRoads, wardStart: data.start })).join('\n');
+    const pages = data.routes.map(r => routePageHtml(r, colorsMap[r.id], appUrlBase, wardName, { targetMin, targetMax })).join('\n');
+    const specs = data.routes.map(r => buildRouteMapSpec(r, colorsMap[r.id], data.start));
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>${esc(wardName)} Route Sheets</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <style>
   @page { size: A4; margin: 14mm; }
   * { box-sizing: border-box; }
@@ -235,27 +319,33 @@ const PrintSheets = (() => {
   .route-kind { font-size:13px; font-weight:700; }
   .route-shape { font-size:11px; color:#5b6470; }
   .route-res { font-size:11.5px; font-weight:700; margin-top:2px; }
-  .route-body { display:flex; gap:16px; margin-top:16px; }
-  .route-map { flex: 1.3; border:1px solid #eee; border-radius:8px; overflow:hidden; aspect-ratio:1/1; }
-  .route-info { flex: 1; font-size:12px; line-height:1.6; }
+  .route-body { display:flex; flex-direction:column; gap:16px; margin-top:16px; }
+  .route-map { width:100%; border:1px solid #eee; border-radius:8px; overflow:hidden; aspect-ratio:2/1; }
+  .leaflet-mini-map { width:100%; height:100%; background:#fbfbf9; }
+  .route-info { display:flex; gap:24px; align-items:flex-start; }
+  .route-info-main { flex:1; font-size:12px; line-height:1.6; }
   .route-difficulty { font-style:italic; color:#5b6470; margin-bottom:8px; }
   .route-map-note { font-size:9.5px; color:#8a8a85; font-style:italic; margin-bottom:8px; }
   .route-hint { background:#f6f6f6; border-radius:8px; padding:8px 10px; margin-bottom:8px; }
   .route-notes { font-size:10.5px; color:#a06a00; font-style:italic; margin-bottom:8px; }
-  .route-streets { font-size:11px; color:#444; margin-bottom:14px; }
-  .route-qr { text-align:center; margin-top:10px; }
+  .route-streets { font-size:11px; color:#444; }
+  .route-qr { flex:0 0 130px; text-align:center; }
   .route-qr svg { width:110px; height:110px; }
   .route-qr-url { font-size:8.5px; color:#888; margin-top:4px; word-break:break-all; }
   .print-bar { position:sticky; top:0; background:#15181d; color:white; padding:10px 16px; text-align:center; z-index:10; }
   .print-bar button { background:#1a73e8; color:white; border:none; border-radius:6px; padding:8px 16px; font-size:13px; font-weight:600; cursor:pointer; }
+  .print-bar button:disabled { background:#5b6470; cursor:not-allowed; }
+  .road-label { position:absolute; left:0; top:0; white-space:nowrap; font-size:10px; font-weight:700; color:#15181d; text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff,0 0 3px #fff,0 0 3px #fff; pointer-events:none; }
+  .start-dot { background:#15181d; border:2px solid white; border-radius:50%; box-shadow:0 0 0 1px rgba(0,0,0,.2); }
 </style></head><body>
-<div class="print-bar no-print"><button onclick="window.print()">Print / Save as PDF</button></div>
+<div class="print-bar no-print"><button id="printBtn" disabled onclick="window.print()">Loading maps…</button></div>
 ${cover}
 ${pages}
+${mapInitScript(specs)}
 </body></html>`;
   }
 
-  return { buildPrintableHtml, difficulty, kindLabel, shapeLabel, routeMiniMapSvg, overviewSvg, qrSvg };
+  return { buildPrintableHtml, difficulty, kindLabel, shapeLabel, buildRouteMapSpec, overviewSvg, qrSvg };
 })();
 
 if (typeof module !== 'undefined') module.exports = PrintSheets;
