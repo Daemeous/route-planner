@@ -242,7 +242,10 @@ const PrintSheets = (() => {
 
   specs.forEach(function (spec) {
     var map = L.map('map-' + spec.id, { zoomControl: false, attributionControl: true });
-    var tiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    // CARTO Basemaps API key (free tier, 5M tile requests/month) -- removes
+    // the "API key required" watermark. From carto.com/basemaps/apikey;
+    // keep CARTO/OSM attribution visible per the free-tier terms.
+    var tiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_32cj_1_90b7918b630fcb520359e0bc', {
       subdomains: 'abcd',
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',

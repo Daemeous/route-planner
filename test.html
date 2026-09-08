@@ -132,7 +132,10 @@ const startPoint = [53.3690, -1.0570]; // "Angel Inn"
 
 const map = L.map('map', { zoomControl: false, attributionControl: true });
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+// CARTO Basemaps API key (free tier, 5M tile requests/month) -- removes
+// the "API key required" watermark. From carto.com/basemaps/apikey; keep
+// CARTO/OSM attribution visible per the free-tier terms.
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_32cj_1_90b7918b630fcb520359e0bc', {
   subdomains: 'abcd',
   maxZoom: 19,
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
