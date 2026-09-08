@@ -14,8 +14,11 @@
   .banner code { background: #fff; padding: 1px 5px; border-radius: 4px; }
 
   /* -- everything below this line is copied from the real print sheet's
-     CSS (js/printSheets.js) unchanged, so this card is a faithful stand-in
-     for a route sheet page -- only .route-map's contents differ. -- */
+     CSS (js/printSheets.js), with two deliberate changes from this round
+     of testing: .route-body now stacks the map above the info instead of
+     side-by-side (a full-width map makes far better use of an A4 page
+     than a half-width square did), and .route-info is a two-column grid
+     (text + QR) now that it has the full page width to work with. -- */
   @page { size: A4; margin: 14mm; }
   .sheet { background: white; width: 210mm; min-height: 297mm; margin: 0 auto 12px; padding: 16mm; page-break-after: always; }
   @media print { body { background: white; } .sheet { margin: 0; box-shadow: none; } .no-print { display: none; } }
@@ -27,46 +30,63 @@
   .route-kind { font-size:13px; font-weight:700; }
   .route-shape { font-size:11px; color:#5b6470; }
   .route-res { font-size:11.5px; font-weight:700; margin-top:2px; }
-  .route-body { display:flex; gap:16px; margin-top:16px; }
-  .route-map { flex: 1.3; border:1px solid #eee; border-radius:8px; overflow:hidden; aspect-ratio:1/1; }
-  .route-info { flex: 1; font-size:12px; line-height:1.6; }
+  .route-body { display:flex; flex-direction:column; gap:16px; margin-top:16px; }
+  .route-map { width:100%; border:1px solid #eee; border-radius:8px; overflow:hidden; aspect-ratio:2/1; }
+  .route-info { display:flex; gap:24px; align-items:flex-start; }
+  .route-info-main { flex:1; font-size:12px; line-height:1.6; }
   .route-difficulty { font-style:italic; color:#5b6470; margin-bottom:8px; }
   .route-map-note { font-size:9.5px; color:#8a8a85; font-style:italic; margin-bottom:8px; }
   .route-hint { background:#f6f6f6; border-radius:8px; padding:8px 10px; margin-bottom:8px; }
-  .route-streets { font-size:11px; color:#444; margin-bottom:14px; }
-  .route-qr { text-align:center; margin-top:10px; }
+  .route-streets { font-size:11px; color:#444; }
+  .route-qr { flex:0 0 130px; text-align:center; }
   .route-qr-placeholder { width:110px; height:110px; margin:0 auto; background:repeating-linear-gradient(45deg,#eee,#eee 4px,#fff 4px,#fff 8px); border:1px solid #ddd; border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:8px; color:#999; text-align:center; }
   .route-qr-url { font-size:8.5px; color:#888; margin-top:4px; word-break:break-all; }
   .print-bar { position:sticky; top:0; background:#15181d; color:white; padding:10px 16px; text-align:center; z-index:10; }
   .print-bar button { background:#1a73e8; color:white; border:none; border-radius:6px; padding:8px 16px; font-size:13px; font-weight:600; cursor:pointer; }
-  /* -- end copied CSS -- */
+  /* -- end copied/adapted CSS -- */
 
   #map { width: 100%; height: 100%; background: #fbfbf9; }
-  .route-line { stroke: #d64545; stroke-width: 4; }
   .start-dot { background:#15181d; border:2px solid white; border-radius:50%; box-shadow:0 0 0 1px rgba(0,0,0,.2); }
+  .road-label {
+    position: absolute; left: 0; top: 0;
+    white-space: nowrap;
+    font-size: 10px;
+    font-weight: 700;
+    color: #15181d;
+    text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
+    pointer-events: none;
+  }
 </style></head><body>
 
 <div class="print-bar no-print"><button onclick="window.print()">Print / Save as PDF</button></div>
 
 <div class="banner no-print">
-  <b>Test: live OSM tiles instead of the hand-drawn schematic.</b>
-  This page is the same route-card layout as a real printed route sheet
-  (<code>js/printSheets.js</code>), but <code>.route-map</code> now holds a
-  live Leaflet map on CARTO's "Positron" tiles — a light, low-detail style
-  built on OpenStreetMap data (thin roads, muted colours, only the more
-  important street/place labels) rather than the busy default OSM style.
-  The route and coordinates below are an <b>approximate stand-in</b> near
-  Blyth, Nottinghamshire, not verified real geometry — this is only to
-  judge whether real street names and points of interest around the route
-  make it easier to place yourself, compared to the grey unlabelled lines
-  from the previous fix.
+  <b>Test: live OSM tiles + our own street labels, full-width layout.</b>
+  Same route-card content as a real printed route sheet
+  (<code>js/printSheets.js</code>), with three changes from this round:
+  <ol style="margin:6px 0 0; padding-left:20px;">
+    <li><code>.route-map</code> is a live Leaflet map on CARTO's
+    "Positron" tiles (light, low-detail, built on OpenStreetMap data)
+    instead of the hand-drawn schematic.</li>
+    <li>Each of the route's own roads gets a label drawn directly on it,
+    rotated to follow the road. This is deliberately <b>not</b> left to
+    the tile provider — CARTO/OSM tiles often don't label short
+    residential roads or cul-de-sacs at all at this zoom (try "The
+    Mews" from the streets list — a tile-only label would likely be
+    missing), whereas we already know every name and its exact geometry
+    from the route data, so we can guarantee it's labelled.</li>
+    <li>The map now spans the full page width with the rest of the
+    sheet stacked below it, rather than a half-width square next to a
+    text column — makes better use of an A4 page and leaves room for a
+    wider, more legible map.</li>
+  </ol>
+  The route/coordinates are still an <b>approximate stand-in</b> near
+  Blyth, Nottinghamshire, not verified real geometry.
   <br><br>
-  <b>Known wrinkle if this goes further:</b> tiles load asynchronously, so
-  printing (or Save-as-PDF) immediately on page load can catch the map
-  mid-load with blank/grey tiles. This test waits for Leaflet's own
-  <code>load</code> event before it's considered "ready" — worth the same
-  handling in the real print-sheet generator, e.g. only enabling the print
-  button once every route's map has fired that event.
+  <b>Known wrinkle if this goes further:</b> tiles load asynchronously,
+  so printing immediately on page load can catch the map mid-load with
+  blank/grey tiles — the real generator should wait for each map's
+  <code>load</code> event before enabling print.
 </div>
 
 <section class="sheet route-sheet">
@@ -85,10 +105,12 @@
   <div class="route-body">
     <div class="route-map"><div id="map"></div></div>
     <div class="route-info">
-      <div class="route-difficulty">Very Hard</div>
-      <div class="route-map-note">Only deliver the streets listed below — other roads are shown for orientation only.</div>
-      <div class="route-hint"><b>Start/parking:</b> Angel Inn (event start point)</div>
-      <div class="route-streets"><b>Streets (8):</b><br>Bawtry Road, Blyth Hall, Nornay Close, Park Drive, Priory Close, Sheffield Road, The Mews, The Woodlands</div>
+      <div class="route-info-main">
+        <div class="route-difficulty">Very Hard</div>
+        <div class="route-map-note">Only deliver the streets listed below — other roads are shown for orientation only.</div>
+        <div class="route-hint"><b>Start/parking:</b> Angel Inn (event start point)</div>
+        <div class="route-streets"><b>Streets (8):</b><br>Bawtry Road, Blyth Hall, Nornay Close, Park Drive, Priory Close, Sheffield Road, The Mews, The Woodlands</div>
+      </div>
       <div class="route-qr">
         <div class="route-qr-placeholder">QR code<br>(omitted<br>in this test)</div>
         <div class="route-qr-url">https://daemeous.github.io/route-planner/bassetlaw-blyth.html#Azure</div>
@@ -99,13 +121,12 @@
 
 <script>
 // Approximate stand-in route near Blyth, Nottinghamshire — NOT verified
-// real road geometry, purely to exercise the tile-basemap idea visually.
-const routeLine = [
-  [53.3695, -1.0565],
-  [53.3705, -1.0562],
-  [53.3718, -1.0558],
-  [53.3730, -1.0552],
-  [53.3742, -1.0548],
+// real road geometry. Split into named segments (unlike the earlier
+// version's single flat line) so each can carry its own label, matching
+// the shape route.roads[] actually has in the real app (name + geometry).
+const roads = [
+  { name: 'Bawtry Road', coords: [[53.3695, -1.0565], [53.3703, -1.0563], [53.3712, -1.0560]] },
+  { name: 'Sheffield Road', coords: [[53.3712, -1.0560], [53.3722, -1.0557], [53.3732, -1.0552], [53.3742, -1.0548]] },
 ];
 const startPoint = [53.3690, -1.0570]; // "Angel Inn"
 
@@ -117,22 +138,43 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
 }).addTo(map);
 
-L.polyline(routeLine, { color: '#d64545', weight: 4.5, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+for (const r of roads) {
+  L.polyline(r.coords, { color: '#d64545', weight: 4.5, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+}
 
 L.marker(startPoint, {
   icon: L.divIcon({ className: 'start-dot', iconSize: [14, 14] }),
 }).addTo(map).bindTooltip('Angel Inn (start)', { permanent: false });
 
-const bounds = L.latLngBounds(routeLine.concat([startPoint]));
-map.fitBounds(bounds, { padding: [24, 24] });
+const allPts = roads.flatMap(r => r.coords).concat([startPoint]);
+map.fitBounds(L.latLngBounds(allPts), { padding: [24, 24] });
 
-let ready = false;
-map.whenReady(() => {
-  // whenReady fires once the map is initialised, not once tiles have
-  // actually painted -- 'load' (fired by the tile layer / map once every
-  // visible tile has loaded) is the signal print should wait for.
-});
-map.on('load', () => { ready = true; console.log('Map fully loaded — safe to print.'); });
+// Screen-space bearing at the map's current zoom/projection -- exactly
+// right for a print sheet, since it's rendered once at a fixed fitBounds
+// and never re-panned/zoomed afterwards (unlike an interactive map, where
+// this would need recomputing on every zoom change).
+function labelAngleDeg(a, b) {
+  const pa = map.latLngToLayerPoint(a), pb = map.latLngToLayerPoint(b);
+  let angle = Math.atan2(pb.y - pa.y, pb.x - pa.x) * 180 / Math.PI;
+  if (angle > 90) angle -= 180;
+  if (angle < -90) angle += 180;
+  return angle;
+}
+
+function addRoadLabel(r) {
+  const mid = Math.floor((r.coords.length - 1) / 2);
+  const a = r.coords[mid], b = r.coords[mid + 1] || r.coords[mid - 1];
+  const angle = labelAngleDeg(L.latLng(a), L.latLng(b));
+  const icon = L.divIcon({
+    className: '',
+    html: `<span class="road-label" style="transform:translate(-50%,-50%) rotate(${angle}deg)">${r.name}</span>`,
+    iconSize: [0, 0],
+  });
+  L.marker(a, { icon, interactive: false, keyboard: false }).addTo(map);
+}
+
+map.whenReady(() => { roads.forEach(addRoadLabel); });
+map.on('load', () => console.log('Map fully loaded — safe to print.'));
 </script>
 
 </body></html>
