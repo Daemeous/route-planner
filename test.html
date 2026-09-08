@@ -165,9 +165,15 @@ function addRoadLabel(r) {
   const mid = Math.floor((r.coords.length - 1) / 2);
   const a = r.coords[mid], b = r.coords[mid + 1] || r.coords[mid - 1];
   const angle = labelAngleDeg(L.latLng(a), L.latLng(b));
+  // The trailing translate runs BEFORE rotate in the composed matrix (CSS
+  // applies transform functions right-to-left), so it shifts the label a
+  // fixed distance "up" in its own pre-rotation frame -- after rotate()
+  // carries that frame around, the offset ends up perpendicular to the
+  // road at whatever angle it's drawn, not just for horizontal roads.
+  const transform = `translate(-50%,-50%) rotate(${angle}deg) translate(0,-9px)`;
   const icon = L.divIcon({
     className: '',
-    html: `<span class="road-label" style="transform:translate(-50%,-50%) rotate(${angle}deg)">${r.name}</span>`,
+    html: `<span class="road-label" style="transform:${transform}">${r.name}</span>`,
     iconSize: [0, 0],
   });
   L.marker(a, { icon, interactive: false, keyboard: false }).addTo(map);
