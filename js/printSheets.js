@@ -56,13 +56,32 @@ const PrintSheets = (() => {
     return { project, width: w + 2 * pad, height: h + 2 * pad };
   }
 
-  function routeMiniMapSvg(route, color, size = 560) {
+  // wardStart is the ward/hub's event-start point, used as a fallback hub
+  // marker for routes that don't carry their own (single-hub walk routes,
+  // which have neither route.hub nor route.marker) -- without it those
+  // sheets show a route floating with no reference point at all.
+  function routeMiniMapSvg(route, color, contextRoads, wardStart, size = 560) {
     const allPts = [];
     for (const rd of route.roads) for (const seg of rd.geometry) allPts.push(...seg);
     if (route.marker) allPts.push(route.marker.point);
     if (route.hub) allPts.push(route.hub.point);
+    else if (wardStart) allPts.push(wardStart.point);
     if (!allPts.length) return '';
     const { project, width, height } = makeProjector(allPts, size);
+
+    // Nearby roads the route doesn't cover, drawn underneath in light grey
+    // purely for orientation -- the printed sheet used to show the route's
+    // own roads floating in blank space with nothing around them.
+    let contextPaths = '';
+    if (contextRoads) {
+      for (const geom of contextRoads) {
+        for (const seg of geom) {
+          if (seg.length < 2) continue;
+          const d = seg.map((p, i) => `${i === 0 ? 'M' : 'L'}${project(p).join(',')}`).join(' ');
+          contextPaths += `<path d="${d}" fill="none" stroke="#dcdcd7" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+        }
+      }
+    }
 
     let paths = '';
     for (const rd of route.roads) {
@@ -76,13 +95,16 @@ const PrintSheets = (() => {
     if (route.hub) {
       const [x, y] = project(route.hub.point);
       markers += `<circle cx="${x}" cy="${y}" r="7" fill="#15181d" stroke="white" stroke-width="2.5"/>`;
+    } else if (wardStart) {
+      const [x, y] = project(wardStart.point);
+      markers += `<circle cx="${x}" cy="${y}" r="7" fill="#15181d" stroke="white" stroke-width="2.5"/>`;
     }
     if (route.marker) {
       const [x, y] = project(route.marker.point);
       markers += `<circle cx="${x}" cy="${y}" r="5.5" fill="${color}" stroke="white" stroke-width="2"/>`;
     }
     return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">` +
-      `<rect width="100%" height="100%" fill="#fbfbf9"/>${paths}${markers}</svg>`;
+      `<rect width="100%" height="100%" fill="#fbfbf9"/>${contextPaths}${paths}${markers}</svg>`;
   }
 
   function qrSvg(url, cellSize = 4) {
@@ -172,9 +194,10 @@ const PrintSheets = (() => {
         </div>
       </div>
       <div class="route-body">
-        <div class="route-map">${routeMiniMapSvg(route, color)}</div>
+        <div class="route-map">${routeMiniMapSvg(route, color, opts.contextRoads, opts.wardStart)}</div>
         <div class="route-info">
           <div class="route-difficulty">${difficulty(route.residencesTotal, opts.targetMin, opts.targetMax)}</div>
+          <div class="route-map-note">Grey roads are shown for orientation only — the black dot is the start point. Only deliver the streets listed below.</div>
           <div class="route-hint"><b>Start/parking:</b> ${esc(route.startHint)}</div>
           ${route.notes ? `<div class="route-notes">${esc(route.notes)}</div>` : ''}
           <div class="route-streets"><b>Streets (${streets.length}):</b><br>${streets.map(esc).join(', ')}</div>
@@ -188,7 +211,7 @@ const PrintSheets = (() => {
     const targetMin = opts.targetMin ?? 150, targetMax = opts.targetMax ?? 450;
     const colorsMap = Colors.routeColors(data.routes.map(r => r.id));
     const cover = coverPageHtml(data, wardName);
-    const pages = data.routes.map(r => routePageHtml(r, colorsMap[r.id], appUrlBase, wardName, { targetMin, targetMax })).join('\n');
+    const pages = data.routes.map(r => routePageHtml(r, colorsMap[r.id], appUrlBase, wardName, { targetMin, targetMax, contextRoads: data.contextRoads, wardStart: data.start })).join('\n');
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>${esc(wardName)} Route Sheets</title>
@@ -216,6 +239,7 @@ const PrintSheets = (() => {
   .route-map { flex: 1.3; border:1px solid #eee; border-radius:8px; overflow:hidden; aspect-ratio:1/1; }
   .route-info { flex: 1; font-size:12px; line-height:1.6; }
   .route-difficulty { font-style:italic; color:#5b6470; margin-bottom:8px; }
+  .route-map-note { font-size:9.5px; color:#8a8a85; font-style:italic; margin-bottom:8px; }
   .route-hint { background:#f6f6f6; border-radius:8px; padding:8px 10px; margin-bottom:8px; }
   .route-notes { font-size:10.5px; color:#a06a00; font-style:italic; margin-bottom:8px; }
   .route-streets { font-size:11px; color:#444; margin-bottom:14px; }
