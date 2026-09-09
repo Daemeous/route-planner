@@ -42,7 +42,14 @@ const Tracker = (() => {
   async function fetchDeploymentRegistry(registryUrl = REGISTRY_URL) {
     let res;
     try {
-      res = await fetch(registryUrl);
+      // GitHub Pages' CDN can serve a stale copy of this file for up to
+      // ~10 minutes after a push (longer on some mobile browsers) -- a
+      // newly-added deployment wouldn't show up in the picker until that
+      // expired. Cache-bust with both a changing query string (defeats the
+      // CDN edge cache, which keys on the full URL) and cache: 'no-store'
+      // (defeats the browser's own HTTP cache too), same pattern already
+      // used for the Apps Script reachability check below.
+      res = await fetch(`${registryUrl}${registryUrl.includes('?') ? '&' : '?'}_=${Date.now()}`, { cache: 'no-store' });
     } catch (e) {
       throw new Error(`Couldn't reach the list of areas (${e.message}).`);
     }
