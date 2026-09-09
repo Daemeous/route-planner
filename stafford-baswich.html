@@ -1,0 +1,665 @@
+<!DOCTYPE html><html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Baswich Ward Leaflet Routes</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗺️</text></svg>">
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<style>
+  *{box-sizing:border-box}
+  html,body,#map{height:100%;margin:0;padding:0;font-family:'Segoe UI',system-ui,sans-serif}
+
+  /* ── Control panel ── */
+  .ctrl{
+    position:absolute;top:10px;right:10px;z-index:1000;
+    background:white;border-radius:12px;
+    box-shadow:0 3px 16px rgba(0,0,0,0.25);
+    min-width:250px;max-width:calc(100vw - 20px);
+    overflow:hidden
+  }
+  .ctrl-header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:13px 16px;cursor:pointer;user-select:none;
+    gap:10px
+  }
+  .ctrl-header h3{margin:0;font-size:16px;font-weight:700;color:#222;letter-spacing:-0.3px;flex:1}
+  .ctrl-toggle{
+    width:32px;height:32px;border-radius:8px;border:none;
+    background:#f2f2f2;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;transition:background .15s
+  }
+  .ctrl-toggle:active{background:#e0e0e0}
+  .ctrl-toggle svg{transition:transform .25s ease}
+  .ctrl.collapsed .ctrl-toggle svg{transform:rotate(180deg)}
+  .ctrl-body{
+    padding:0 16px 16px;
+    max-height:82vh;overflow-y:auto;
+    transition:max-height .3s ease, padding .3s ease, opacity .25s ease;
+    opacity:1
+  }
+  .ctrl.collapsed .ctrl-body{
+    max-height:0;padding-top:0;padding-bottom:0;opacity:0;pointer-events:none
+  }
+  .ctrl label{display:block;font-weight:600;margin-bottom:8px;font-size:13px;color:#555;text-transform:uppercase;letter-spacing:0.5px}
+
+  .ctrl select{
+    width:100%;padding:12px 10px;font-size:14px;
+    border:2px solid #ddd;border-radius:8px;
+    background:#fafafa;color:#111;
+    -webkit-appearance:none;appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23555' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 12px center;
+    padding-right:36px;cursor:pointer;
+    transition:border-color .15s
+  }
+  .ctrl select:focus{outline:none;border-color:#1a73e8}
+
+  #info{margin-top:12px;font-size:13px;color:#444;line-height:1.6}
+  #info .route-badge{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+  #info .route-swatch{width:14px;height:14px;border-radius:4px;flex-shrink:0}
+  #info .route-num{font-size:20px;font-weight:800;letter-spacing:-0.4px}
+  #info .route-name{font-size:13.5px;font-weight:600;color:#333;margin:0 0 6px}
+  #info .tag-row{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 8px}
+  #info .tag{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:3px 8px;border-radius:999px;background:#f0f0f0;color:#555}
+  #info .res-count{font-size:14px;font-weight:700;color:#222;margin:2px 0 2px}
+  #info .difficulty{font-size:12px;color:#777;font-style:italic;margin-bottom:8px}
+  #info .hint{font-size:12.5px;color:#333;background:#f6f6f6;border-radius:8px;padding:8px 10px;margin:6px 0}
+  #info .hint b{color:#111}
+  #info .notes{font-size:11.5px;color:#777;font-style:italic;margin:6px 0}
+  #info .streets{font-size:12px;color:#666;line-height:1.7}
+
+  .legend{margin-top:14px;border-top:1px solid #eee;padding-top:10px;font-size:11.5px;color:#555;max-height:190px;overflow-y:auto}
+  .legend-item{display:flex;align-items:center;margin:4px 0;gap:8px;cursor:pointer}
+  .legend-swatch{width:20px;height:5px;border-radius:3px;flex-shrink:0}
+  .legend-item .lg-name{flex:1}
+  .legend-item.legend-done .lg-name::before{content:"✓ ";color:#0a8a3a;font-weight:800}
+  .legend-item .lg-res{color:#999;font-family:ui-monospace,monospace;font-size:10.5px}
+
+  #locBtn{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    width:100%;margin-top:12px;padding:11px 14px;
+    font-size:14px;font-weight:600;
+    background:#1a73e8;color:white;
+    border:none;border-radius:8px;cursor:pointer;
+    transition:background .15s,transform .1s
+  }
+  #locBtn:active{transform:scale(0.97)}
+  #locBtn:disabled{background:#aaa;cursor:default}
+  #locBtn.active{background:#0a8a3a}
+  #locBtn svg{flex-shrink:0}
+
+  /* ── Progress reporting ── */
+  .report-banner{font-size:12px;border-radius:8px;padding:9px 11px;margin:10px 0 4px;line-height:1.5}
+  .report-banner.ok{background:#eaf7ee;color:#0a6a2a}
+  .report-banner.locked{background:#f4f4f4;color:#777}
+  .report-complete-btn{
+    display:block;width:100%;margin-top:8px;padding:11px 14px;
+    font-size:13.5px;font-weight:700;text-align:center;
+    background:#0a8a3a;color:white;border:none;border-radius:8px;
+    cursor:pointer;transition:background .15s,transform .1s
+  }
+  .report-complete-btn:active{transform:scale(0.98)}
+  .report-complete-btn.done{background:#eaf7ee;color:#0a6a2a;border:2px solid #0a8a3a}
+  .report-roadlist-label{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.04em;font-weight:700;margin:12px 0 6px}
+  .report-roadlist{max-height:160px;overflow-y:auto;border-top:1px solid #eee;padding-top:2px}
+  .report-road-item{display:flex;align-items:center;gap:9px;padding:6px 2px;font-size:13px;color:#333;cursor:pointer}
+  .report-road-item input{width:17px;height:17px;flex-shrink:0;accent-color:#0a8a3a;cursor:pointer}
+  .report-road-item.done span{color:#0a8a3a;text-decoration:line-through;text-decoration-color:#0a8a3a99}
+  .report-sync-note{font-size:11px;color:#a06a00;margin-top:8px;font-style:italic}
+  .popup-done-btn{
+    display:block;margin-top:7px;padding:6px 10px;font-size:12px;font-weight:700;
+    background:#0a8a3a;color:white;border:none;border-radius:6px;cursor:pointer
+  }
+  .popup-done-btn.undo{background:#888}
+  .popup-done-btn:disabled{background:#bbb;cursor:default}
+
+  .auth-line{display:flex;align-items:center;justify-content:space-between;font-size:12px;margin-bottom:8px}
+  .auth-signin-btn{
+    width:100%;padding:10px 14px;font-size:13.5px;font-weight:700;
+    background:white;color:#3c4043;border:1px solid #dadce0;border-radius:8px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:8px
+  }
+  .auth-signin-btn:active{background:#f4f4f4}
+  .auth-signout{font-size:11px;color:#888;background:none;border:none;cursor:pointer;text-decoration:underline}
+  .auth-authorised-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:999px;background:#eaf7ee;color:#0a6a2a}
+  .auth-pending-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:999px;background:#fff4e0;color:#a06a00}
+  .report-road-item.roadpending span{color:#a06a00}
+  .roadpending-mark{color:#a06a00;font-size:10.5px}
+
+  #geoModal{
+    position:fixed;inset:0;z-index:9999;
+    display:flex;align-items:flex-end;justify-content:center;
+    background:rgba(0,0,0,0.45);
+    animation:fadeIn .25s ease
+  }
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  .geo-sheet{
+    background:white;width:100%;max-width:480px;
+    border-radius:20px 20px 0 0;
+    padding:28px 24px 36px;
+    animation:slideUp .3s cubic-bezier(.22,.68,0,1.2)
+  }
+  @keyframes slideUp{from{transform:translateY(80px);opacity:0}to{transform:translateY(0);opacity:1}}
+  .geo-icon{font-size:44px;text-align:center;margin-bottom:12px}
+  .geo-sheet h2{font-size:20px;font-weight:800;color:#111;margin:0 0 8px;text-align:center}
+  .geo-sheet p{font-size:14px;color:#555;line-height:1.6;margin:0 0 22px;text-align:center}
+  .geo-btns{display:flex;flex-direction:column;gap:10px}
+  .geo-yes{
+    padding:15px;font-size:16px;font-weight:700;
+    background:#1a73e8;color:white;
+    border:none;border-radius:10px;cursor:pointer;
+    transition:background .15s
+  }
+  .geo-yes:active{background:#1558b0}
+  .geo-no{
+    padding:13px;font-size:14px;font-weight:500;
+    background:none;color:#777;border:none;cursor:pointer
+  }
+
+  .loc-pulse{
+    width:24px;height:24px;
+    background:rgba(26,115,232,0.25);
+    border:3px solid #1a73e8;border-radius:50%;
+    animation:pulse 2s ease-in-out infinite
+  }
+  @keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.4);opacity:.6}}
+
+  .start-icon{width:20px;height:20px;background:#15181d;border:3px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+  .park-icon{width:15px;height:15px;border:2.5px solid white;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,.4)}
+  .leaflet-popup-content b{color:#111}
+</style>
+</head><body>
+<div id="map"></div>
+
+<div id="geoModal">
+  <div class="geo-sheet">
+    <div class="geo-icon">📍</div>
+    <h2>Show your location?</h2>
+    <p>See where you are on the map while out canvassing. Your location stays on your device and is never shared.</p>
+    <div class="geo-btns">
+      <button class="geo-yes" onclick="requestLocation()">Yes, show my location</button>
+      <button class="geo-no" onclick="dismissModal()">Not now</button>
+    </div>
+  </div>
+</div>
+
+<div class="ctrl" id="ctrl">
+  <div class="ctrl-header" onclick="togglePanel()">
+    <h3>🗺 Baswich Ward Routes</h3>
+    <button class="ctrl-toggle" aria-label="Toggle panel">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+    </button>
+  </div>
+  <div class="ctrl-body">
+    <label>Select Route</label>
+    <select id="sel"><option value="all">— Show All Routes —</option></select>
+    <button id="locBtn" onclick="toggleLocation()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+      Show my location
+    </button>
+    <div id="info"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/backend.js"></script>
+<script>
+const DATA = {"ward":"Baswich","start":{"lat":52.7920843,"lon":-2.0787027,"label":"BOD (Titanic Brewery)"},"hubs":[{"id":null,"lat":52.7920843,"lon":-2.0787027,"label":"BOD (Titanic Brewery)"}],"routesMeta":{"A":{"id":"A","name":"Bodmin Avenue & Dawlish Avenue","kind":"walk","shape":"out-and-back","residences":256,"startHint":"BOD (Titanic Brewery) (event start point)","notes":"","marker":null,"hubId":null,"secret":"Arbor"},"B":{"id":"B","name":"Porlock Avenue & Tiverton Avenue","kind":"walk","shape":"out-and-back","residences":215,"startHint":"BOD (Titanic Brewery) (event start point)","notes":"","marker":null,"hubId":null,"secret":"Brindle"},"C":{"id":"C","name":"Newquay Avenue & Falmouth Avenue","kind":"walk","shape":"out-and-back","residences":204,"startHint":"BOD (Titanic Brewery) (event start point)","notes":"NEEDS REVIEW: combines roads not directly linked by a mapped road in this dataset (nearest-cluster fallback) — double-check there's a sensible walking/driving link between them, or split this route.","marker":null,"hubId":null,"secret":"Comet"},"D":{"id":"D","name":"Sidmouth Avenue & Bideford Avenue","kind":"walk","shape":"out-and-back","residences":297,"startHint":"BOD (Titanic Brewery) (event start point)","notes":"","marker":null,"hubId":null,"secret":"Damson"},"E":{"id":"E","name":"Widecombe Avenue & Braunton Avenue","kind":"walk","shape":"out-and-back","residences":137,"startHint":"BOD (Titanic Brewery) (event start point)","notes":"","marker":null,"hubId":null,"secret":"Eagle"},"F":{"id":"F","name":"Torrington Avenue & Babbacombe Avenue","kind":"walk","shape":"out-and-back","residences":173,"startHint":"BOD (Titanic Brewery) (event start point)","notes":"","marker":null,"hubId":null,"secret":"Feather"},"G":{"id":"G","name":"Cornwall Drive & Hayle Close","kind":"hybrid","shape":"loop","residences":371,"startHint":"Drive to Cornwall Drive and park there (suggested — please use your own discretion), then walk the route","notes":"","marker":{"label":"Cornwall Drive","point":[-2.0767646,52.798192]},"hubId":null,"secret":"Garden"},"H":{"id":"H","name":"Lodgefield Park & The Saltings","kind":"drive","shape":"out-and-back","residences":200,"startHint":"Park on Lodgefield Park (suggested — please use your own discretion)","notes":"NEEDS REVIEW: combines roads not directly linked by a mapped road in this dataset (nearest-cluster fallback) — double-check there's a sensible walking/driving link between them, or split this route.","marker":{"label":"Lodgefield Park","point":[-2.0780289006572836,52.800412682227226]},"hubId":null,"secret":"Harvest"},"I":{"id":"I","name":"Danta Way & Farmdown Road","kind":"drive","shape":"out-and-back","residences":241.5,"startHint":"Park on Farmdown Road (suggested — please use your own discretion)","notes":"","marker":{"label":"Farmdown Road","point":[-2.0855446,52.7976339]},"hubId":null,"secret":"Islet"},"J":{"id":"J","name":"Ascot Road & Osborne Crescent","kind":"drive","shape":"loop","residences":169,"startHint":"Park on Ascot Road (suggested — please use your own discretion)","notes":"","marker":{"label":"Ascot Road","point":[-2.0859878,52.7955652]},"hubId":null,"secret":"Jonesy"},"K":{"id":"K","name":"Sandringham Road & Radford Rise","kind":"drive","shape":"loop","residences":114,"startHint":"Park on Sandringham Road (suggested — please use your own discretion)","notes":"","marker":{"label":"Sandringham Road","point":[-2.0864991620791637,52.7934910982238]},"hubId":null,"secret":"Kettle"},"L":{"id":"L","name":"Queensville & Benenden Close","kind":"drive","shape":"out-and-back","residences":308,"startHint":"Park on Ludgrove Way (suggested — please use your own discretion)","notes":"NEEDS REVIEW: combines roads not directly linked by a mapped road in this dataset (nearest-cluster fallback) — double-check there's a sensible walking/driving link between them, or split this route.","marker":{"label":"Ludgrove Way","point":[-2.0950690762643998,52.79446704992728]},"hubId":null,"secret":"Lavender"}},"roads":[{"id":"A-0","street":"Bodmin Avenue","routeId":"A","res":150,"status":"Not_Started","segments":[[[52.7890313,-2.0714905],[52.7894161,-2.0728152]],[[52.792116,-2.0793325],[52.7922267,-2.0797276],[52.7923551,-2.0800252],[52.7924882,-2.0802681],[52.7926667,-2.0805501],[52.7930022,-2.0809242],[52.7931293,-2.0810577],[52.7933002,-2.0812091],[52.7935347,-2.0813133],[52.7937917,-2.0813915],[52.7940195,-2.0814311],[52.7941945,-2.0814366]],[[52.7894161,-2.0728152],[52.7896234,-2.0733714],[52.7900889,-2.074218],[52.7906966,-2.0751452],[52.7908673,-2.0753887],[52.7910149,-2.0756422],[52.7911278,-2.075864],[52.7912533,-2.0761317],[52.791357,-2.0764052],[52.7914334,-2.0766521],[52.7915968,-2.0772735],[52.7917823,-2.078025],[52.7919027,-2.0785125],[52.7919125,-2.078552],[52.792116,-2.0793325]]],"rowIndex":14,"originalRanges":null,"currentPartialGeometry":null},{"id":"A-1","street":"Honiton Close","routeId":"A","res":15,"status":"Not_Started","segments":[[[52.7915509,-2.0754509],[52.7911278,-2.075864]],[[52.7916183,-2.0755041],[52.7915509,-2.0754509]],[[52.7915509,-2.0754509],[52.7915453,-2.0753378]]],"rowIndex":40,"originalRanges":null,"currentPartialGeometry":null},{"id":"A-2","street":"Portleven Close","routeId":"A","res":15,"status":"Not_Started","segments":[[[52.7890832,-2.0741275],[52.7896234,-2.0733714]]],"rowIndex":55,"originalRanges":null,"currentPartialGeometry":null},{"id":"A-3","street":"Saint Austell Close","routeId":"A","res":32,"status":"Not_Started","segments":[[[52.792927,-2.0790614],[52.7929372,-2.0791591],[52.792983,-2.0792231],[52.793043,-2.0792234]],[[52.793043,-2.0792234],[52.7930891,-2.0791599],[52.7930997,-2.0790623],[52.7930699,-2.0789762],[52.7930136,-2.078942],[52.7929571,-2.0789756],[52.792927,-2.0790614]],[[52.793043,-2.0792234],[52.7932375,-2.0799284],[52.7932473,-2.0801628],[52.7932053,-2.0803613],[52.7930022,-2.0809242]]],"rowIndex":63,"originalRanges":null,"currentPartialGeometry":null},{"id":"A-4","street":"Dawlish Avenue","routeId":"A","res":44,"status":"Not_Started","segments":[[[52.791357,-2.0764052],[52.7912511,-2.0764928],[52.7905454,-2.077077],[52.7904996,-2.0770999],[52.7904576,-2.0770885],[52.7904233,-2.0770656],[52.7903775,-2.0769969],[52.7900666,-2.0763246],[52.7898681,-2.0758208],[52.7896559,-2.0751797],[52.7896391,-2.0750499],[52.7896491,-2.0749193],[52.7896768,-2.07479],[52.7900889,-2.074218]]],"rowIndex":29,"originalRanges":null,"currentPartialGeometry":null},{"id":"B-0","street":"Porlock Avenue","routeId":"B","res":174,"status":"Not_Started","segments":[[[52.7941945,-2.0814366],[52.7942144,-2.0817733],[52.7942381,-2.0823858],[52.7942419,-2.0834698]],[[52.7917186,-2.0693933],[52.7917281,-2.0694953],[52.7917518,-2.0704077],[52.7918019,-2.0709153],[52.7918699,-2.0713863]],[[52.7935153,-2.0771628],[52.7935572,-2.0773558],[52.7937446,-2.078248],[52.7939132,-2.0791305],[52.7940159,-2.0797734],[52.7941328,-2.0806344],[52.7941571,-2.0809264]],[[52.7918699,-2.0713863],[52.7919686,-2.0718536],[52.7920718,-2.0722551],[52.7923963,-2.073274],[52.792565,-2.0738298],[52.7931265,-2.0756419],[52.7932598,-2.0761251],[52.7933987,-2.0766916],[52.7935153,-2.0771628]],[[52.7941571,-2.0809264],[52.7941945,-2.0814366]]],"rowIndex":54,"originalRanges":null,"currentPartialGeometry":null},{"id":"B-1","street":"Tiverton Avenue","routeId":"B","res":41,"status":"Not_Started","segments":[[[52.7935572,-2.0773558],[52.7921876,-2.0783519],[52.7919125,-2.078552]]],"rowIndex":79,"originalRanges":null,"currentPartialGeometry":null},{"id":"C-0","street":"Falmouth Avenue","routeId":"C","res":47,"status":"Not_Started","segments":[[[52.79528,-2.0736148],[52.795176,-2.0734079],[52.794718,-2.0724966],[52.7941852,-2.0714859],[52.7940967,-2.0713223],[52.7939037,-2.0709655],[52.79364,-2.0705928],[52.7932214,-2.0701226],[52.7930391,-2.0699595],[52.7928945,-2.0698302],[52.792746,-2.0697213]],[[52.792746,-2.0697213],[52.7925275,-2.0695778],[52.792172,-2.069423],[52.791977,-2.0693657],[52.7918566,-2.0693657],[52.7917948,-2.0693639],[52.7917186,-2.0693933]],[[52.792746,-2.0697213],[52.7928745,-2.0692103],[52.7930265,-2.0688023]]],"rowIndex":34,"originalRanges":null,"currentPartialGeometry":null},{"id":"C-1","street":"Lynton Avenue","routeId":"C","res":22,"status":"Not_Started","segments":[[[52.792116,-2.0793325],[52.7917044,-2.0795762],[52.7916154,-2.0796212],[52.7911793,-2.0798664],[52.7900345,-2.080485]]],"rowIndex":45,"originalRanges":null,"currentPartialGeometry":null},{"id":"C-2","street":"Milford Road","routeId":"C","res":5,"status":"Not_Started","segments":[[[52.788123,-2.0722179],[52.7881085,-2.0718378],[52.7881072,-2.0717619],[52.7881066,-2.0716838],[52.7881124,-2.0711864]]],"rowIndex":49,"originalRanges":null,"currentPartialGeometry":null},{"id":"C-3","street":"Newquay Avenue","routeId":"C","res":59,"status":"Not_Started","segments":[[[52.7931293,-2.0810577],[52.7929139,-2.0816722],[52.7928832,-2.0817221],[52.7928334,-2.081768],[52.7927683,-2.0817757],[52.7917315,-2.081701],[52.7916318,-2.0816741],[52.7915475,-2.0816052],[52.7914786,-2.0814902],[52.7911793,-2.0798664]]],"rowIndex":50,"originalRanges":null,"currentPartialGeometry":null},{"id":"C-4","street":"Stockton Lane","routeId":"C","res":16,"status":"Not_Started","segments":[[[52.7917186,-2.0693933],[52.7916937,-2.0693417],[52.7916523,-2.0693108],[52.7915999,-2.0693051],[52.7914965,-2.0693266],[52.7913837,-2.0693749],[52.7908755,-2.0698556]],[[52.7908755,-2.0698556],[52.7904426,-2.070362],[52.7901353,-2.0706652],[52.789946,-2.0708209],[52.7890313,-2.0714905]],[[52.7890313,-2.0714905],[52.7885323,-2.0720027],[52.7883856,-2.0720821],[52.7883565,-2.0721026],[52.788123,-2.0722179]]],"rowIndex":74,"originalRanges":null,"currentPartialGeometry":null},{"id":"C-5","street":"Weeping Cross","routeId":"C","res":6,"status":"Not_Started","segments":[[[52.7904357,-2.0837437],[52.790513,-2.0836882],[52.7905912,-2.0834899],[52.7905939,-2.0833162]],[[52.7905939,-2.0833162],[52.7905372,-2.0829284],[52.7900853,-2.0807317],[52.7900345,-2.080485]],[[52.7883856,-2.0720821],[52.7882818,-2.0715835]],[[52.7900345,-2.080485],[52.7898982,-2.079873],[52.7897336,-2.0792394],[52.7896074,-2.0787489],[52.7894983,-2.0783472],[52.7893443,-2.0777978],[52.7892955,-2.077638],[52.789053,-2.076819]],[[52.7881908,-2.0731894],[52.788174,-2.0729129],[52.7881391,-2.0724375]],[[52.789053,-2.076819],[52.7889646,-2.0765206],[52.7887579,-2.0759143],[52.78859,-2.075378],[52.7884255,-2.0747424],[52.7883408,-2.0743851],[52.7882294,-2.0737191],[52.7881932,-2.0732295]],[[52.7905939,-2.0833162],[52.7904911,-2.0834104],[52.7904143,-2.0836015],[52.7904357,-2.0837437]],[[52.7881932,-2.0732295],[52.7881908,-2.0731894]],[[52.7881391,-2.0724375],[52.788123,-2.0722179]]],"rowIndex":83,"originalRanges":null,"currentPartialGeometry":null},{"id":"C-6","street":"Falmouth Close","routeId":"C","res":0,"status":"Not_Started","segments":[[[52.7930265,-2.0688023],[52.7930999,-2.0687047],[52.7931551,-2.0686616],[52.7932216,-2.0686859],[52.7933993,-2.0688872]]],"rowIndex":35,"originalRanges":null,"currentPartialGeometry":null},{"id":"C-7","street":"Appledore Close","routeId":"C","res":20,"status":"Not_Started","segments":[[[52.7913689,-2.072801],[52.7917545,-2.0738268]]],"rowIndex":3,"originalRanges":null,"currentPartialGeometry":null},{"id":"C-8","street":"Camborne Close","routeId":"C","res":29,"status":"Not_Started","segments":[[[52.7922582,-2.0753541],[52.7917545,-2.0738268]]],"rowIndex":20,"originalRanges":null,"currentPartialGeometry":null},{"id":"D-0","street":"Bideford Avenue","routeId":"D","res":70,"status":"Not_Started","segments":[[[52.7942058,-2.0767769],[52.7944433,-2.0778774],[52.794635,-2.0788407],[52.7947933,-2.0799576],[52.7948095,-2.0801244],[52.7947973,-2.080264],[52.7947621,-2.0803644],[52.79472,-2.0804417],[52.7946644,-2.0805108],[52.7941328,-2.0806344]]],"rowIndex":13,"originalRanges":null,"currentPartialGeometry":null},{"id":"D-1","street":"Sidmouth Avenue","routeId":"D","res":85,"status":"Not_Started","segments":[[[52.7958442,-2.0760782],[52.7959064,-2.0761318],[52.7959459,-2.0762158],[52.7959736,-2.0763185],[52.7959956,-2.0765241],[52.7960072,-2.0767451],[52.7960117,-2.0769826],[52.7960187,-2.0773019]],[[52.7960187,-2.0773019],[52.7959927,-2.077609],[52.7959745,-2.0779032],[52.7959381,-2.0782186],[52.7958774,-2.0785856],[52.7957925,-2.0791255],[52.7956954,-2.0797381],[52.795565,-2.0805631],[52.7954316,-2.081297],[52.7953982,-2.0816094]]],"rowIndex":73,"originalRanges":null,"currentPartialGeometry":null},{"id":"D-2","street":"Yelverton Avenue","routeId":"D","res":38,"status":"Not_Started","segments":[[[52.7935153,-2.0771628],[52.7942058,-2.0767769],[52.7950334,-2.0762925],[52.7952202,-2.0761918],[52.7953816,-2.0761308],[52.7955388,-2.0761023],[52.7956785,-2.076082],[52.7958442,-2.0760782]]],"rowIndex":88,"originalRanges":null,"currentPartialGeometry":null},{"id":"D-3","street":"Salcombe Avenue","routeId":"D","res":40,"status":"Not_Started","segments":[[[52.7960869,-2.0817138],[52.7958349,-2.0816701],[52.795653,-2.0816246],[52.7953982,-2.0816094],[52.7951738,-2.0816428],[52.7949918,-2.0816792],[52.7947916,-2.0817459],[52.794549,-2.0817884],[52.7942144,-2.0817733]]],"rowIndex":67,"originalRanges":null,"currentPartialGeometry":null},{"id":"D-4","street":"Saint Ives Close","routeId":"D","res":26,"status":"Not_Started","segments":[[[52.7953721,-2.0772928],[52.7944433,-2.0778774]]],"rowIndex":64,"originalRanges":null,"currentPartialGeometry":null},{"id":"D-5","street":"Tavistock Avenue","routeId":"D","res":15,"status":"Not_Started","segments":[[[52.7966398,-2.0773256],[52.7965743,-2.0773014],[52.7963484,-2.0772985],[52.7960187,-2.0773019]]],"rowIndex":75,"originalRanges":null,"currentPartialGeometry":null},{"id":"D-6","street":"Saint Mawes Close","routeId":"D","res":23,"status":"Not_Started","segments":[[[52.7957925,-2.0791255],[52.7955135,-2.0790163],[52.7953254,-2.0789374],[52.7952678,-2.0788828],[52.7952344,-2.0788161],[52.7952223,-2.0787555],[52.7952162,-2.0786887]],[[52.7952162,-2.0786887],[52.7952617,-2.0786463],[52.7952769,-2.0785886],[52.7952678,-2.078525],[52.7952496,-2.0784825],[52.795198,-2.0784643],[52.7951616,-2.0784977],[52.7951495,-2.0785553],[52.7951495,-2.0786099],[52.7951677,-2.0786523],[52.7952162,-2.0786887]]],"rowIndex":65,"originalRanges":null,"currentPartialGeometry":null},{"id":"E-0","street":"Braunton Avenue","routeId":"E","res":43,"status":"Not_Started","segments":[[[52.7912357,-2.0743868],[52.7907025,-2.0734135],[52.7905442,-2.0730704],[52.7902193,-2.0721758]]],"rowIndex":15,"originalRanges":null,"currentPartialGeometry":null},{"id":"E-1","street":"Hartland Avenue","routeId":"E","res":43,"status":"Not_Started","segments":[[[52.7906966,-2.0751452],[52.7909419,-2.0747933],[52.7912357,-2.0743868],[52.7917545,-2.0738268],[52.7923963,-2.073274]]],"rowIndex":37,"originalRanges":null,"currentPartialGeometry":null},{"id":"E-2","street":"Widecombe Avenue","routeId":"E","res":51,"status":"Not_Started","segments":[[[52.7918699,-2.0713863],[52.7909203,-2.0718206],[52.7902193,-2.0721758],[52.7894161,-2.0728152]]],"rowIndex":85,"originalRanges":null,"currentPartialGeometry":null},{"id":"F-0","street":"Babbacombe Avenue","routeId":"F","res":36,"status":"Not_Started","segments":[[[52.7939296,-2.0727564],[52.7933033,-2.073249],[52.792565,-2.0738298]]],"rowIndex":6,"originalRanges":null,"currentPartialGeometry":null},{"id":"F-1","street":"Camelford Close","routeId":"F","res":27,"status":"Not_Started","segments":[[[52.7937157,-2.0744492],[52.7933033,-2.073249]]],"rowIndex":21,"originalRanges":null,"currentPartialGeometry":null},{"id":"F-2","street":"Seaton Avenue","routeId":"F","res":13,"status":"Not_Started","segments":[[[52.7936689,-2.0722034],[52.79407,-2.0716193],[52.7941852,-2.0714859]]],"rowIndex":70,"originalRanges":null,"currentPartialGeometry":null},{"id":"F-3","street":"Torrington Avenue","routeId":"F","res":80,"status":"Not_Started","segments":[[[52.7918019,-2.0709153],[52.7921775,-2.0708235],[52.7923186,-2.0708049],[52.7925058,-2.0708269],[52.7926098,-2.0708743],[52.7927344,-2.0709551],[52.7930085,-2.0712457],[52.7931497,-2.0713951],[52.7934324,-2.0717919],[52.7936689,-2.0722034],[52.7939296,-2.0727564],[52.7945785,-2.0743122]]],"rowIndex":80,"originalRanges":null,"currentPartialGeometry":null},{"id":"F-4","street":"Saint Michael's Close","routeId":"F","res":17,"status":"Not_Started","segments":[[[52.7928247,-2.0721484],[52.7931497,-2.0713951]],[[52.7928882,-2.0722197],[52.7928247,-2.0721484]],[[52.7928247,-2.0721484],[52.792765,-2.0720816]]],"rowIndex":66,"originalRanges":null,"currentPartialGeometry":null},{"id":"G-0","street":"Cornwall Drive","routeId":"G","res":96,"status":"Not_Started","segments":[[[52.796672,-2.0746561],[52.7966688,-2.0748255],[52.7966874,-2.0749738],[52.7967353,-2.0751366],[52.7967867,-2.075257],[52.7968521,-2.0753431],[52.7969235,-2.0753998],[52.7970154,-2.0754852],[52.7970953,-2.075614],[52.7971461,-2.0757184],[52.7972051,-2.0758167],[52.7972551,-2.0758581],[52.7972996,-2.0758616],[52.7973584,-2.0758361],[52.7973881,-2.0758118],[52.79758,-2.0755678],[52.7976378,-2.0755188],[52.7976929,-2.075502],[52.7977406,-2.0755056],[52.7977881,-2.0755402],[52.7978391,-2.075601],[52.7978728,-2.0757038],[52.7978913,-2.0758211],[52.7978903,-2.0759782],[52.7979098,-2.0761468],[52.797937,-2.0763224],[52.7979954,-2.0765008],[52.7980684,-2.0766322],[52.798192,-2.0767646],[52.7983837,-2.0768715],[52.7984667,-2.0769927],[52.7985349,-2.0771824],[52.7986167,-2.0774984],[52.7986305,-2.0776166],[52.7986268,-2.0777117],[52.7986125,-2.0777799],[52.7985873,-2.0778322],[52.7983627,-2.0781966],[52.7983303,-2.0782708],[52.7983193,-2.0783815],[52.7983238,-2.0784853],[52.7983501,-2.0785767],[52.7984014,-2.0786522],[52.7985098,-2.0789165],[52.798606,-2.079243],[52.7988318,-2.0797254],[52.7988562,-2.079855],[52.7988504,-2.0799865],[52.7988289,-2.0801152],[52.7988421,-2.0802292],[52.799176,-2.0809589],[52.799321,-2.0812102],[52.7994231,-2.0814877],[52.7994789,-2.0817993],[52.799504,-2.0821319],[52.7995353,-2.0825021]]],"rowIndex":26,"originalRanges":null,"currentPartialGeometry":null},{"id":"G-1","street":"Helston Close","routeId":"G","res":25,"status":"Not_Started","segments":[[[52.7961291,-2.0758289],[52.7962162,-2.0757816],[52.796193,-2.075538],[52.7961741,-2.0751339],[52.7961226,-2.0746251]]],"rowIndex":39,"originalRanges":null,"currentPartialGeometry":null},{"id":"G-2","street":"Padstow Drive","routeId":"G","res":32,"status":"Not_Started","segments":[[[52.7954774,-2.0736096],[52.7954751,-2.0738679],[52.7955206,-2.0741656],[52.7955464,-2.074478],[52.7956012,-2.0746074],[52.795671,-2.0746867],[52.7957817,-2.0747396],[52.7960168,-2.0746458],[52.7961226,-2.0746251],[52.7962066,-2.0746163],[52.7963331,-2.0746551],[52.7965439,-2.0746538],[52.796672,-2.0746561]],[[52.795553,-2.0736238],[52.7954774,-2.0736096]],[[52.7954774,-2.0736096],[52.7954249,-2.0735997]]],"rowIndex":52,"originalRanges":null,"currentPartialGeometry":null},{"id":"G-3","street":"Unknown Road","routeId":"G","res":41,"status":"Not_Started","segments":[[[52.7959429,-2.0757181],[52.7962162,-2.0757816],[52.7962854,-2.0761654],[52.79631,-2.0763084],[52.7963232,-2.0763396],[52.7963627,-2.0763416],[52.796438,-2.0763603],[52.7965158,-2.0763748]]],"rowIndex":1901,"originalRanges":null,"currentPartialGeometry":null},{"id":"G-4","street":"Bude Drive","routeId":"G","res":21,"status":"Not_Started","segments":[[[52.7957196,-2.0727222],[52.7957602,-2.0728271]],[[52.7957602,-2.0728271],[52.7958284,-2.0730032],[52.7958806,-2.0731572],[52.795913,-2.0734751],[52.7959228,-2.0737472],[52.796063,-2.0737356]],[[52.7957602,-2.0728271],[52.7958781,-2.0726809],[52.7960599,-2.0724993],[52.7961257,-2.0724398]]],"rowIndex":18,"originalRanges":null,"currentPartialGeometry":null},{"id":"G-5","street":"Hayle Close","routeId":"G","res":48,"status":"Not_Started","segments":[[[52.796063,-2.0737356],[52.796187,-2.0736987],[52.7962396,-2.0736601],[52.7962639,-2.0735298],[52.7962548,-2.0734356],[52.7962569,-2.0733637],[52.796284,-2.073275],[52.7963629,-2.0731699],[52.7965264,-2.0729823]],[[52.7968884,-2.0739286],[52.7967969,-2.074182],[52.7967191,-2.0744151],[52.796672,-2.0746561]],[[52.7964816,-2.0729001],[52.7965264,-2.0729823]],[[52.7965264,-2.0729823],[52.7968642,-2.0736025],[52.7968894,-2.0737647],[52.7968884,-2.0739286]]],"rowIndex":38,"originalRanges":null,"currentPartialGeometry":null},{"id":"G-6","street":"Penzance Way","routeId":"G","res":37,"status":"Not_Started","segments":[[[52.7968884,-2.0739286],[52.7969943,-2.0739709],[52.7970693,-2.0740408],[52.7971315,-2.0741335],[52.7971642,-2.0742904],[52.7972033,-2.0744827],[52.7972458,-2.074617],[52.7972818,-2.0746819],[52.7973352,-2.0747274],[52.7973996,-2.0747422],[52.7974987,-2.0747036]],[[52.7974987,-2.0747036],[52.7976006,-2.0746478]],[[52.7974987,-2.0747036],[52.7975476,-2.0749773],[52.7976793,-2.0752814],[52.7976929,-2.075502]]],"rowIndex":53,"originalRanges":null,"currentPartialGeometry":null},{"id":"G-7","street":"Redruth Drive","routeId":"G","res":39,"status":"Not_Started","segments":[[[52.7974643,-2.0767067],[52.797474,-2.076872],[52.7975111,-2.0770364],[52.7978951,-2.0776973],[52.7979535,-2.0778452],[52.7980612,-2.0781178],[52.7981828,-2.0783209],[52.7982484,-2.0783794],[52.7983193,-2.0783815]],[[52.7972996,-2.0758616],[52.7972972,-2.0760378],[52.7972609,-2.0764393],[52.797288,-2.0765761],[52.7973329,-2.076644],[52.7973872,-2.0766829],[52.7974643,-2.0767067]],[[52.7974643,-2.0767067],[52.7975502,-2.0766936]]],"rowIndex":60,"originalRanges":null,"currentPartialGeometry":null},{"id":"G-8","street":"Truro Way","routeId":"G","res":32,"status":"Not_Started","segments":[[[52.799176,-2.0809589],[52.7993056,-2.0807602],[52.7994373,-2.0805906],[52.7995373,-2.0804713],[52.7995671,-2.0803771],[52.7995756,-2.0802546],[52.7995527,-2.080097],[52.7994683,-2.0796705],[52.7993435,-2.0790983],[52.7992804,-2.0788885],[52.7992292,-2.0787733],[52.799173,-2.0787108],[52.7990657,-2.0786393],[52.7990162,-2.0785815],[52.7989615,-2.0784407],[52.7988341,-2.0779421],[52.7987823,-2.0778166],[52.798707,-2.0777396],[52.7986268,-2.0777117]]],"rowIndex":81,"originalRanges":null,"currentPartialGeometry":null},{"id":"H-0","street":"Lodgefield Park","routeId":"H","res":134,"status":"Not_Started","segments":[[[52.8005817,-2.0800295],[52.8004783,-2.0798974],[52.8004072,-2.0796622],[52.8002962,-2.0793152]],[[52.8002962,-2.0793152],[52.8005311,-2.0791184],[52.8006257,-2.0790741]],[[52.8006257,-2.0790741],[52.8006906,-2.0790438],[52.8008831,-2.0789578],[52.8010027,-2.0789491]],[[52.8010027,-2.0789491],[52.8012351,-2.0792245],[52.8014137,-2.0793794],[52.8015351,-2.0794568],[52.8016322,-2.0794367]],[[52.8016322,-2.0794367],[52.8019287,-2.0799243]],[[52.7997976,-2.0772054],[52.8000716,-2.0770276]],[[52.8012264,-2.0784788],[52.8007756,-2.0778822],[52.800408,-2.0773631],[52.8002589,-2.0775926]],[[52.8002589,-2.0775926],[52.8003958,-2.0779396],[52.8004652,-2.0783067],[52.8005727,-2.0787541],[52.8006257,-2.0790741]],[[52.8016547,-2.0789864],[52.8016512,-2.0787283],[52.8016062,-2.0784644],[52.8014536,-2.0780859],[52.8012091,-2.0776786],[52.8009473,-2.0772226],[52.8007583,-2.0768784],[52.8006369,-2.07654],[52.8004305,-2.0762589],[52.8002415,-2.0760295],[52.799945,-2.0757312],[52.7996069,-2.0754473],[52.799345,-2.0752666],[52.799189,-2.0754817],[52.7991231,-2.0756279]],[[52.7991231,-2.0756279],[52.7992167,-2.0759033],[52.7995583,-2.07654],[52.7997976,-2.0772054]],[[52.7997976,-2.0772054],[52.7999329,-2.0777532],[52.7999411,-2.0777946]],[[52.7999411,-2.0777946],[52.8000386,-2.0782838],[52.8001947,-2.0790094],[52.8002962,-2.0793152]],[[52.8016322,-2.0794367],[52.8016842,-2.0792904],[52.8017085,-2.0791585],[52.8016547,-2.0789864]],[[52.8016547,-2.0789864],[52.8012264,-2.0784788]],[[52.8012264,-2.0784788],[52.8011605,-2.0785247],[52.8010444,-2.0787799],[52.8010027,-2.0789491]],[[52.8002589,-2.0775926],[52.7999411,-2.0777946]],[[52.7991231,-2.0756279],[52.7988912,-2.0751608],[52.7986826,-2.0746987]]],"rowIndex":43,"originalRanges":null,"currentPartialGeometry":null},{"id":"H-1","street":"The Saltings","routeId":"H","res":43,"status":"Not_Started","segments":[[[52.8015533,-2.0804854],[52.8015429,-2.0803305],[52.8014528,-2.080167],[52.8013383,-2.0800781],[52.8010609,-2.079949],[52.8009118,-2.0798544],[52.8008043,-2.0798458],[52.800721,-2.0798818],[52.800639,-2.0799522],[52.8005817,-2.0800295],[52.8005646,-2.080137],[52.8005773,-2.0802449],[52.8007191,-2.0808093],[52.8008117,-2.0812606],[52.8008358,-2.0813614],[52.8008529,-2.0814331]]],"rowIndex":77,"originalRanges":null,"currentPartialGeometry":null},{"id":"H-2","street":"Tilcon Avenue","routeId":"H","res":23,"status":"Not_Started","segments":[[[52.8015571,-2.084187],[52.8016004,-2.0841044],[52.8016237,-2.0840163],[52.8016472,-2.0838563],[52.8016544,-2.0837171],[52.8016091,-2.0828899],[52.8015704,-2.0821849],[52.8015526,-2.0818596],[52.8015267,-2.081303]]],"rowIndex":78,"originalRanges":null,"currentPartialGeometry":null},{"id":"H-3","street":"Two Waters Way","routeId":"H","res":0,"status":"Not_Started","segments":[[[52.8038328,-2.0823224],[52.803291,-2.082191],[52.803221,-2.082132],[52.803156,-2.081995],[52.803101,-2.081805]]],"rowIndex":82,"originalRanges":null,"currentPartialGeometry":null},{"id":"I-0","street":"Balmoral Road","routeId":"I","res":25,"status":"Not_Started","segments":[[[52.7962689,-2.0855788],[52.7963512,-2.0853443],[52.7963958,-2.08517],[52.796398,-2.0850554],[52.7963836,-2.0847829],[52.7964247,-2.0845479],[52.7964831,-2.0844085],[52.7965461,-2.0842786],[52.796565,-2.0841247],[52.7965569,-2.0835885]]],"rowIndex":7,"originalRanges":null,"currentPartialGeometry":null},{"id":"I-1","street":"Churchfield Close","routeId":"I","res":28,"status":"Not_Started","segments":[[[52.7971684,-2.0857388],[52.7971004,-2.0858892],[52.7970863,-2.0860559],[52.7971703,-2.0871011]]],"rowIndex":24,"originalRanges":null,"currentPartialGeometry":null},{"id":"I-2","street":"Danta Way","routeId":"I","res":74.5,"status":"In_Progress","segments":[[[52.7978784,-2.0875158],[52.798057,-2.0874292],[52.7982693,-2.0872374],[52.7986923,-2.0867397],[52.7989246,-2.0864984],[52.7990124,-2.0864145],[52.7991192,-2.0863536],[52.7993953,-2.086243],[52.799442,-2.0861873],[52.7994746,-2.0860907],[52.7994899,-2.0859692],[52.7994841,-2.0856852],[52.7994854,-2.0853916],[52.7995035,-2.0852229],[52.7995399,-2.0850591],[52.7995948,-2.0849213],[52.7996847,-2.084777],[52.7998246,-2.0846672],[52.7999869,-2.0845405],[52.8000576,-2.0844324],[52.8000939,-2.0843285],[52.8001258,-2.0841658],[52.8001403,-2.0837609],[52.8001396,-2.0834741],[52.8001183,-2.0829809],[52.8000727,-2.0826465],[52.8000079,-2.0825475],[52.799933,-2.0825194],[52.7998035,-2.0825595],[52.7995609,-2.0827785],[52.7988366,-2.0835055],[52.7987221,-2.0836319],[52.7987049,-2.0836827],[52.798693,-2.0837549],[52.7986693,-2.0838221],[52.7986362,-2.0838649],[52.7985972,-2.0838784],[52.7985518,-2.0838757],[52.7985235,-2.0838649],[52.7984992,-2.0838387],[52.7984689,-2.083784],[52.7984488,-2.0837216],[52.7984347,-2.0836372]]],"rowIndex":28,"originalRanges":null,"currentPartialGeometry":null},{"id":"I-3","street":"Farmdown Road","routeId":"I","res":72,"status":"Not_Started","segments":[[[52.7978784,-2.0875158],[52.7976292,-2.0859518],[52.79759,-2.0858547],[52.7975372,-2.0857944]],[[52.7975372,-2.0857944],[52.7972283,-2.085785],[52.7971684,-2.0857388],[52.7971359,-2.0856978],[52.7970993,-2.0856121],[52.7970708,-2.0851734],[52.797084,-2.0850286],[52.7971012,-2.0849396],[52.7971407,-2.0848864],[52.7975446,-2.0845941],[52.7975786,-2.0845485],[52.7975954,-2.0844864],[52.7976084,-2.0841477],[52.7976261,-2.0836887]],[[52.7975372,-2.0857944],[52.7975941,-2.0856991],[52.7976339,-2.0855446]]],"rowIndex":36,"originalRanges":null,"currentPartialGeometry":null},{"id":"I-4","street":"Mayfield Road","routeId":"I","res":18,"status":"Not_Started","segments":[[[52.7964831,-2.0844085],[52.7965781,-2.0845043],[52.7966476,-2.0845164],[52.7968276,-2.0846077],[52.7970348,-2.0847513],[52.7971012,-2.0849396]]],"rowIndex":47,"originalRanges":null,"currentPartialGeometry":null},{"id":"I-5","street":"Fairview Way","routeId":"I","res":24,"status":"Not_Started","segments":[[[52.795209,-2.0885686],[52.7954557,-2.0884779],[52.7957573,-2.0884725],[52.7960864,-2.0885016],[52.7966445,-2.0883921],[52.7972266,-2.0882012],[52.7973726,-2.0881346],[52.797499,-2.0880536],[52.7976159,-2.0879495],[52.7977327,-2.0877779],[52.7978784,-2.0875158]]],"rowIndex":33,"originalRanges":null,"currentPartialGeometry":null},{"id":"J-0","street":"Ascot Road","routeId":"J","res":93,"status":"Not_Started","segments":[[[52.7956696,-2.0857656],[52.7955711,-2.0857993],[52.7954309,-2.0858251],[52.7953109,-2.085859],[52.7952123,-2.0859105],[52.7950106,-2.0860654]],[[52.7950106,-2.0860654],[52.7948808,-2.0862028],[52.7947874,-2.0863143],[52.7947043,-2.0864946],[52.7946369,-2.086795],[52.7946234,-2.0869206],[52.7946333,-2.0870302],[52.7946836,-2.0872156],[52.7947755,-2.0873672],[52.7948567,-2.0874262],[52.7949832,-2.087456],[52.7951037,-2.0874506],[52.7952012,-2.0874077],[52.7953551,-2.0873443]],[[52.7953551,-2.0873443],[52.7955397,-2.0873021],[52.7957942,-2.0872713],[52.7960038,-2.0872708]],[[52.7960038,-2.0872708],[52.7961485,-2.0872763],[52.7962552,-2.0872428],[52.7963526,-2.0871371],[52.7964288,-2.0869434],[52.7964763,-2.0867437],[52.7965066,-2.0864743],[52.7965152,-2.0862344],[52.7964954,-2.0859935],[52.7964434,-2.0858172],[52.7963657,-2.0856897],[52.7962987,-2.0856167],[52.7962689,-2.0855788],[52.7961992,-2.0855379],[52.7961119,-2.085547],[52.7960418,-2.085562],[52.795883,-2.0856641]],[[52.795883,-2.0856641],[52.7957856,-2.0857318],[52.7956696,-2.0857656]],[[52.795883,-2.0856641],[52.7958918,-2.0857528],[52.7958868,-2.0858246],[52.7957846,-2.0859278],[52.7955652,-2.0859878],[52.7954199,-2.0860135],[52.7952932,-2.0860577],[52.7951396,-2.0861509],[52.7950438,-2.0861849],[52.7950106,-2.0860654]],[[52.7960038,-2.0872708],[52.7959798,-2.0871237],[52.7959466,-2.0870829],[52.7956443,-2.0870999],[52.7954135,-2.0871408],[52.7953652,-2.0871882],[52.7953551,-2.0873443]]],"rowIndex":5,"originalRanges":null,"currentPartialGeometry":null},{"id":"J-1","street":"Belvedere Close","routeId":"J","res":13,"status":"Not_Started","segments":[[[52.7954111,-2.0848666],[52.7951873,-2.084905],[52.7950125,-2.084978],[52.7948412,-2.0850189],[52.7947476,-2.0850393]]],"rowIndex":11,"originalRanges":null,"currentPartialGeometry":null},{"id":"J-2","street":"Buckingham Close","routeId":"J","res":7,"status":"Not_Started","segments":[[[52.7954434,-2.0847093],[52.7956765,-2.084721]]],"rowIndex":17,"originalRanges":null,"currentPartialGeometry":null},{"id":"J-3","street":"Chartwell Road","routeId":"J","res":19,"status":"Not_Started","segments":[[[52.7956696,-2.0857656],[52.7955369,-2.0853284],[52.7954111,-2.0848666],[52.7954434,-2.0847093],[52.7954205,-2.0835236]]],"rowIndex":23,"originalRanges":null,"currentPartialGeometry":null},{"id":"J-4","street":"Osborne Crescent","routeId":"J","res":26,"status":"Not_Started","segments":[[[52.7941668,-2.0881193],[52.7940737,-2.0880751],[52.7939858,-2.0879854],[52.7939294,-2.0878239],[52.7938943,-2.0875932],[52.7938918,-2.0874261],[52.7938883,-2.0872954],[52.79388,-2.0871718],[52.7938283,-2.0870849],[52.7937572,-2.0870581],[52.7937026,-2.0870624],[52.7935468,-2.0870434]],[[52.7947755,-2.0873672],[52.7946323,-2.0876538],[52.7945323,-2.0878982],[52.7944869,-2.0879968],[52.7944096,-2.0880756],[52.7943185,-2.0881301],[52.7942433,-2.0881346],[52.7941668,-2.0881193]]],"rowIndex":51,"originalRanges":null,"currentPartialGeometry":null},{"id":"J-5","street":"Westminster Close","routeId":"J","res":11,"status":"Not_Started","segments":[[[52.7946234,-2.0869206],[52.7944927,-2.0869118],[52.7943638,-2.0868651],[52.7942738,-2.086795],[52.7941925,-2.0866899]]],"rowIndex":84,"originalRanges":null,"currentPartialGeometry":null},{"id":"K-0","street":"Radford Rise","routeId":"K","res":31,"status":"Not_Started","segments":[[[52.7920127,-2.0888631],[52.7920928,-2.0887764],[52.7922832,-2.088566],[52.7925617,-2.0883163],[52.792786,-2.0881389]],[[52.792786,-2.0881389],[52.7929607,-2.0880171],[52.7931038,-2.0879397]],[[52.792786,-2.0881389],[52.7927514,-2.0878546],[52.7926594,-2.0868621],[52.7925386,-2.0855593],[52.7924622,-2.0852229],[52.7923392,-2.08497],[52.7922161,-2.0848837],[52.7919484,-2.0848095],[52.7915082,-2.0846874],[52.7911026,-2.0844807],[52.7910584,-2.0844487],[52.7910116,-2.0844046],[52.7909814,-2.084387],[52.790944,-2.0843794],[52.7908751,-2.0843878]]],"rowIndex":59,"originalRanges":null,"currentPartialGeometry":null},{"id":"K-1","street":"Sandringham Close","routeId":"K","res":17,"status":"Not_Started","segments":[[[52.7936935,-2.0843052],[52.7937624,-2.0845622],[52.7938613,-2.084787],[52.793999,-2.0849243],[52.7941421,-2.0850586],[52.7942127,-2.0853419],[52.7941862,-2.0855931]]],"rowIndex":68,"originalRanges":null,"currentPartialGeometry":null},{"id":"K-2","street":"Sandringham Road","routeId":"K","res":58,"status":"Not_Started","segments":[[[52.7935468,-2.0870434],[52.7935089,-2.0866433],[52.793449,-2.0861583],[52.7934011,-2.0856075],[52.7933771,-2.0851225],[52.7933652,-2.0848411],[52.7934131,-2.084648],[52.7934909,-2.0845237],[52.7936346,-2.084392],[52.7936935,-2.0843052],[52.7937184,-2.0842603],[52.7937723,-2.0840447],[52.7938104,-2.0834453]],[[52.793286,-2.0886779],[52.7933951,-2.0886791],[52.7935029,-2.0886791],[52.7935867,-2.0886252],[52.7936117,-2.088483],[52.7936107,-2.088327],[52.7935551,-2.0881118],[52.7935102,-2.0879448],[52.793519,-2.0877727],[52.7935427,-2.0875647],[52.7935438,-2.0873974],[52.7935468,-2.0870434]]],"rowIndex":69,"originalRanges":null,"currentPartialGeometry":null},{"id":"K-3","street":"Shawms Crest","routeId":"K","res":8,"status":"Not_Started","segments":[[[52.7930303,-2.0887098],[52.7929747,-2.088974],[52.7929138,-2.088989],[52.792615,-2.0888119],[52.7925749,-2.0886988],[52.7925617,-2.0883163]]],"rowIndex":71,"originalRanges":null,"currentPartialGeometry":null},{"id":"L-0","street":"Malvern Close","routeId":"L","res":16,"status":"Not_Started","segments":[[[52.7967735,-2.0951385],[52.7965588,-2.0950926],[52.7964352,-2.0951366],[52.796274,-2.0951262],[52.7961989,-2.0950589],[52.7961622,-2.0948729]]],"rowIndex":46,"originalRanges":null,"currentPartialGeometry":null},{"id":"L-1","street":"Repton Close","routeId":"L","res":15,"status":"Not_Started","segments":[[[52.7964312,-2.0965491],[52.79616,-2.0960373]]],"rowIndex":61,"originalRanges":null,"currentPartialGeometry":null},{"id":"L-2","street":"Benenden Close","routeId":"L","res":28,"status":"Not_Started","segments":[[[52.7954804,-2.0942809],[52.7956643,-2.0946034],[52.7957068,-2.0947876],[52.7957068,-2.0949926],[52.7956655,-2.0951479],[52.7955829,-2.0952866],[52.795494,-2.095446]]],"rowIndex":12,"originalRanges":null,"currentPartialGeometry":null},{"id":"L-3","street":"Eton Close","routeId":"L","res":14,"status":"Not_Started","segments":[[[52.7955664,-2.0966048],[52.7956825,-2.0962016],[52.7957054,-2.0960373]]],"rowIndex":32,"originalRanges":null,"currentPartialGeometry":null},{"id":"L-4","street":"Lancing Avenue","routeId":"L","res":25,"status":"Not_Started","segments":[[[52.7948833,-2.0949373],[52.7947499,-2.0946435],[52.794596,-2.0941851],[52.7945855,-2.0940848],[52.7944322,-2.0939789],[52.7943173,-2.0939708],[52.7941681,-2.0940557],[52.7939652,-2.0943104]]],"rowIndex":42,"originalRanges":null,"currentPartialGeometry":null},{"id":"L-5","street":"Ludgrove Way","routeId":"L","res":25,"status":"Not_Started","segments":[[[52.794427,-2.0951543],[52.7943082,-2.0951539],[52.7942039,-2.0952313]],[[52.7947499,-2.0946435],[52.7945036,-2.0949913],[52.794427,-2.0951543]]],"rowIndex":44,"originalRanges":null,"currentPartialGeometry":null},{"id":"L-6","street":"Roedean Avenue","routeId":"L","res":23,"status":"Not_Started","segments":[[[52.794427,-2.0951543],[52.7944153,-2.0953484],[52.7944615,-2.0955656],[52.7945075,-2.0957178],[52.7946132,-2.0959068]]],"rowIndex":62,"originalRanges":null,"currentPartialGeometry":null},{"id":"L-7","street":"The Glade","routeId":"L","res":13,"status":"Not_Started","segments":[[[52.7947085,-2.0978503],[52.7947752,-2.0976937],[52.7948312,-2.0975623],[52.7949337,-2.0973642],[52.7950787,-2.0972241]],[[52.794847,-2.0979666],[52.7947085,-2.0978503]],[[52.7947085,-2.0978503],[52.794633,-2.097791]]],"rowIndex":76,"originalRanges":null,"currentPartialGeometry":null},{"id":"L-8","street":"Queensville","routeId":"L","res":80,"status":"Not_Started","segments":[[[52.793921,-2.0967066],[52.7937061,-2.0964539],[52.7935598,-2.0961563],[52.7934519,-2.0958361],[52.7933132,-2.0953138],[52.7932585,-2.0950844],[52.7932197,-2.0948948],[52.7931612,-2.0946084],[52.7931348,-2.0944749],[52.7930936,-2.0942669],[52.793014,-2.0938715],[52.7929568,-2.0935685]],[[52.7942125,-2.0970911],[52.7941277,-2.0969387],[52.7941085,-2.096909],[52.7940789,-2.0968632],[52.7940042,-2.0967455],[52.793921,-2.0967066]],[[52.793921,-2.0967066],[52.793971,-2.096851],[52.7940023,-2.0969077],[52.7940402,-2.0969763],[52.794082,-2.0970663],[52.794114,-2.0971761],[52.7941415,-2.0973633],[52.7941514,-2.0975412],[52.7941618,-2.0976142]],[[52.796593,-2.1007619],[52.7965193,-2.1006229],[52.7963082,-2.1002016],[52.7961066,-2.0997971],[52.7958309,-2.0993763],[52.7954525,-2.0988031],[52.7952378,-2.0984648],[52.7950945,-2.0984348]]],"rowIndex":56,"originalRanges":null,"currentPartialGeometry":null},{"id":"L-9","street":"Queensville Bridge","routeId":"L","res":7,"status":"Not_Started","segments":[[[52.796409,-2.1009172],[52.7963913,-2.1008885],[52.7961631,-2.1004723],[52.7958301,-2.0998282],[52.7953888,-2.0989715],[52.7953093,-2.0988243],[52.7952902,-2.0987896]],[[52.7951175,-2.0984765],[52.7950945,-2.0984348]],[[52.79665,-2.1012209],[52.7966485,-2.1012195]]],"rowIndex":57,"originalRanges":null,"currentPartialGeometry":null},{"id":"L-10","street":"Charterhouse Avenue","routeId":"L","res":27,"status":"Not_Started","segments":[[[52.796579,-2.094043],[52.7966755,-2.0938287],[52.796916,-2.0934622],[52.7970431,-2.0932423],[52.7971132,-2.0930538],[52.7971817,-2.0928147],[52.7972674,-2.0925251]],[[52.797222,-2.092443],[52.7972674,-2.0925251]],[[52.7972674,-2.0925251],[52.7973355,-2.0925457]]],"rowIndex":22,"originalRanges":null,"currentPartialGeometry":null},{"id":"L-11","street":"Denstone Avenue","routeId":"L","res":19,"status":"Not_Started","segments":[[[52.796916,-2.0934622],[52.7966762,-2.0931238]],[[52.7966762,-2.0931238],[52.7966078,-2.0929754],[52.7965475,-2.0923687]],[[52.7966762,-2.0931238],[52.7965035,-2.0933208]],[[52.7965034,-2.092359],[52.7965475,-2.0923687]],[[52.7965475,-2.0923687],[52.7965943,-2.0923348]]],"rowIndex":30,"originalRanges":null,"currentPartialGeometry":null},{"id":"L-12","street":"Ardingley Avenue","routeId":"L","res":16,"status":"Not_Started","segments":[[[52.7959683,-2.0938687],[52.7959459,-2.0934419],[52.7959246,-2.0931024],[52.7958896,-2.0928726]]],"rowIndex":4,"originalRanges":null,"currentPartialGeometry":null}]};
+// This ward's OWN live leaflet-map deployment -- reporting progress here
+// writes to (or proposes a change to) the SAME Data sheet that site reads,
+// through the SAME Apps Script backend. Not a separate tracker.
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyeyfwzYRVEUPse35hzVyPJAtOBut7swG4YlGA0hu1qQQACijzJoiZ6O2uMfmJGnJg4/exec';
+const GOOGLE_CLIENT_ID = '580224381168-i67a13m72bvlpq8rtkhnjk15tic4k9e1.apps.googleusercontent.com';
+// When true, every route accepts reporting directly (no QR-code secret
+// word needed to unlock it) -- an opt-in escape hatch for a branch that
+// can't get printed sheets/QR codes to volunteers. See isUnlocked().
+const NO_SECRET_GATE = false;
+
+const ROUTE_COLOR = {
+  A:'#2a78d6', B:'#eb6834', C:'#1baf7a', D:'#eda100',
+  E:'#e87ba4', F:'#008300', G:'#4a3aa7', H:'#e34948'
+};
+const KIND_LABEL = {walk:'Walk', hybrid:'Hybrid', drive:'Drive-to'};
+
+function difficulty(res) {
+  if (res < 180) return 'Very Easy';
+  if (res < 260) return 'Easy';
+  if (res < 340) return 'Moderate';
+  if (res < 420) return 'Hard';
+  return 'Very Hard';
+}
+
+const allRoutes = Object.keys(DATA.routesMeta).sort();
+
+/* ── Which route (if any) this page load is credentialed for.
+   The URL hash is a per-route secret word (e.g. #Aston), matched once
+   here at load time -- the app never rewrites the address bar
+   afterwards, so browsing other routes never overwrites or leaks this
+   page's own access word. Old sheets printed before this scheme (raw
+   route letters like #A) still work as a fallback. ── */
+function matchRouteFromHash(hashRaw) {
+  const h = (hashRaw || '').replace(/^#/, '').trim();
+  if (!h) return null;
+  const hLower = h.toLowerCase();
+  for (const key of allRoutes) {
+    const secret = DATA.routesMeta[key].secret;
+    if (secret && secret.toLowerCase() === hLower) return key;
+  }
+  const hUpper = h.toUpperCase();
+  return DATA.routesMeta[hUpper] ? hUpper : null;
+}
+const unlockedRouteId = matchRouteFromHash(window.location.hash);
+function isUnlocked(routeId) { return NO_SECRET_GATE || routeId === unlockedRouteId; }
+
+const map = L.map('map', {tap: true, tapTolerance: 15});
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  attribution:'© OpenStreetMap contributors', maxZoom:19
+}).addTo(map);
+
+/* ────────────────────────────────────────────
+   PROGRESS REPORTING
+   Writes directly to (or proposes a change to) this ward's own live
+   leaflet-map Data sheet via APPS_SCRIPT_URL -- see backend.js. Reporting
+   ANYTHING requires signing in with Google first (the backend needs a
+   verified email to decide authorised-direct vs pending-for-review; there
+   is no anonymous write path). Authorised status comes from that same
+   site's own "Authorised" sheet -- this app doesn't maintain its own list.
+──────────────────────────────────────────── */
+const auth = { signedIn: false, email: null, authorised: false, banned: false };
+
+// Per-device convenience cache only (not authoritative -- the Sheet is)
+// so a submitted/pending mark survives a page reload on the same device.
+function loadLocalMarks(routeId) {
+  try { return JSON.parse(localStorage.getItem('lfp:marks:' + DATA.ward + ':' + routeId)) || {}; } catch (e) { return {}; }
+}
+function saveLocalMarks(routeId, marks) { localStorage.setItem('lfp:marks:' + DATA.ward + ':' + routeId, JSON.stringify(marks)); }
+function roadMark(routeId, roadId) { return loadLocalMarks(routeId)[roadId] || null; } // null | "pending" | "done"
+function setRoadMark(routeId, roadId, mark) {
+  const m = loadLocalMarks(routeId);
+  if (mark) m[roadId] = mark; else delete m[roadId];
+  saveLocalMarks(routeId, m);
+}
+function isRoadDone(routeId, roadId) { return roadMark(routeId, roadId) === 'done'; }
+function isRoadPending(routeId, roadId) { return roadMark(routeId, roadId) === 'pending'; }
+
+function roadById(roadId) { return DATA.roads.find(r => r.id === roadId); }
+
+async function doSignIn() {
+  try {
+    await Auth.signIn(GOOGLE_CLIENT_ID);
+    const res = await Backend.verify(APPS_SCRIPT_URL);
+    if (!res.ok) { alert(res.error || 'Sign-in verification failed.'); return; }
+    auth.signedIn = true; auth.email = res.email; auth.authorised = !!res.authorised; auth.banned = !!res.banned;
+  } catch (e) {
+    alert('Sign-in failed: ' + e.message);
+  }
+  refreshReportPanelIfActive(currentSel);
+}
+function doSignOut() {
+  Auth.signOut();
+  auth.signedIn = false; auth.email = null; auth.authorised = false; auth.banned = false;
+  refreshReportPanelIfActive(currentSel);
+}
+
+async function setRoadDone(routeId, roadId, done) {
+  const road = roadById(roadId);
+  if (!road || road.rowIndex == null) { alert("This road isn't linked to a source row, so progress can't be reported for it."); return; }
+  if (!auth.signedIn) { alert('Sign in with Google first to report progress.'); return; }
+  if (auth.banned) { alert("This Google account isn't permitted to submit changes."); return; }
+
+  setRoadMark(routeId, roadId, done ? 'submitting' : null);
+  applyRoadVisual(routeId, roadId);
+  refreshReportPanelIfActive(routeId);
+
+  const result = await Backend.markRoadDone(APPS_SCRIPT_URL, road, auth.authorised, done);
+  if (!result.ok) {
+    setRoadMark(routeId, roadId, null);
+    alert(result.error || 'Could not report this road.');
+  } else {
+    setRoadMark(routeId, roadId, result.pending ? 'pending' : 'done');
+  }
+  applyRoadVisual(routeId, roadId);
+  refreshReportPanelIfActive(routeId);
+}
+function toggleRoadDone(routeId, roadId) { setRoadDone(routeId, roadId, !isRoadDone(routeId, roadId) && !isRoadPending(routeId, roadId)); }
+
+async function onToggleRouteComplete(routeId) {
+  if (!auth.signedIn) { alert('Sign in with Google first to report progress.'); return; }
+  if (auth.banned) { alert("This Google account isn't permitted to submit changes."); return; }
+  if (!confirm('Mark the whole of Route ' + routeId + ' as complete? This reports every road on it.')) return;
+
+  const roads = DATA.roads.filter(r => r.routeId === routeId && r.rowIndex != null);
+  roads.forEach(r => setRoadMark(routeId, r.id, 'submitting'));
+  roads.forEach(r => applyRoadVisual(routeId, r.id));
+  refreshReportPanelIfActive(routeId);
+
+  const result = await Backend.markRouteDone(APPS_SCRIPT_URL, roads, auth.authorised, true);
+  roads.forEach(r => setRoadMark(routeId, r.id, result.ok ? (auth.authorised ? 'done' : 'pending') : null));
+  roads.forEach(r => applyRoadVisual(routeId, r.id));
+  setLegendDone(routeId, result.ok && auth.authorised);
+  refreshReportPanelIfActive(routeId);
+  if (!result.ok) alert(`Reported ${result.succeeded}/${result.total} roads -- ` + (result.errors[0] || 'some failed, please retry.'));
+}
+
+function popupHtmlForRoad(r) {
+  let html = '<b>' + r.street + '</b><br>Route ' + r.routeId + ' — ' + DATA.routesMeta[r.routeId].name + '<br>' + Math.round(r.res) + ' estimated residences';
+  if (isUnlocked(r.routeId) && r.rowIndex != null) {
+    const done = isRoadDone(r.routeId, r.id);
+    const pending = isRoadPending(r.routeId, r.id);
+    const label = pending ? '⏳ Awaiting review' : (done ? '↺ Undo — not done yet' : '✓ Mark this road done');
+    html += '<button class="popup-done-btn' + (done || pending ? ' undo' : '') + '" ' + (pending ? 'disabled' : '') +
+      ' onclick="toggleRoadDone(\'' + r.routeId + '\',\'' + r.id + '\')">' + label + '</button>';
+  }
+  return html;
+}
+
+/* ── Route road groups ── */
+const groups = {};
+const groupBounds = {};
+const groupInfo = {};
+const roadLayers = {};
+
+DATA.roads.forEach(r => {
+  const key = r.routeId;
+  if (!groups[key]) {
+    groups[key] = L.layerGroup();
+    groupBounds[key] = [];
+    groupInfo[key] = {res: 0, streets: []};
+  }
+  r.segments.forEach(seg => {
+    const poly = L.polyline(seg, {color: ROUTE_COLOR[key], weight:6, opacity:0.75});
+    poly._roadData = r;
+    poly.bindPopup(popupHtmlForRoad(r));
+    groups[key].addLayer(poly);
+    (roadLayers[r.id] = roadLayers[r.id] || []).push(poly);
+    seg.forEach(pt => groupBounds[key].push(pt));
+  });
+  groupInfo[key].res += r.res;
+  groupInfo[key].streets.push(r.street);
+});
+
+function doneAdjust(style, mark) {
+  if (!mark) return style;
+  if (mark === 'submitting') return Object.assign({}, style, {opacity: style.opacity * 0.7, dashArray: '4,4'});
+  return Object.assign({}, style, {opacity: style.opacity * 0.4, dashArray: '1,8'});
+}
+function applyRoadVisual(routeId, roadId) {
+  const layers = roadLayers[roadId];
+  if (!layers) return;
+  const mark = roadMark(routeId, roadId); // null | "submitting" | "pending" | "done"
+  let base;
+  if (currentSel === 'all') base = {weight:6, opacity:0.75};
+  else { const active = routeId === currentSel; base = {weight: active?7:4, opacity: active?0.95:0.18}; }
+  layers.forEach(layer => {
+    layer.setStyle(doneAdjust(base, mark));
+    if (layer.getPopup()) layer.setPopupContent(popupHtmlForRoad(layer._roadData));
+  });
+}
+
+/* ── Start + parking markers ── */
+function markerIcon(cls) { return L.divIcon({html:'<div class="'+cls+'"></div>', className:'', iconSize:[20,20], iconAnchor:[10,10]}); }
+
+const hubs = DATA.hubs && DATA.hubs.length ? DATA.hubs : [DATA.start];
+const multiHub = hubs.length > 1;
+const hubPts = [];
+hubs.forEach((hub, i) => {
+  const label = multiHub ? ('HUB ' + (i + 1)) : 'START';
+  L.marker([hub.lat, hub.lon], {icon: markerIcon('start-icon'), zIndexOffset: 900})
+    .bindPopup('<b>' + label + '</b><br>' + hub.label)
+    .addTo(map);
+  hubPts.push([hub.lat, hub.lon]);
+});
+
+const parkMarkers = {};
+allRoutes.forEach(key => {
+  const meta = DATA.routesMeta[key];
+  if (meta.marker) {
+    const m = L.marker([meta.marker.point[1], meta.marker.point[0]], {
+      icon: L.divIcon({html:'<div class="park-icon" style="background:'+ROUTE_COLOR[key]+'"></div>', className:'', iconSize:[15,15], iconAnchor:[7,7]}),
+      zIndexOffset: 800
+    }).bindPopup('<b>Route '+key+' — suggested parking</b><br>'+meta.marker.label+'<br><small>Not an official space — please use your own discretion.</small>');
+    parkMarkers[key] = m;
+  }
+});
+
+const sel = document.getElementById('sel');
+const info = document.getElementById('info');
+const legend = document.getElementById('legend');
+const legendItems = {};
+
+allRoutes.forEach(key => {
+  const meta = DATA.routesMeta[key];
+  const o = document.createElement('option');
+  o.value = key;
+  o.textContent = 'Route '+key+' — '+meta.name+'  ('+Math.round(meta.residences)+' res, '+KIND_LABEL[meta.kind]+')';
+  sel.appendChild(o);
+});
+
+allRoutes.forEach(key => {
+  const meta = DATA.routesMeta[key];
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  item.innerHTML = '<div class="legend-swatch" style="background:'+ROUTE_COLOR[key]+'"></div>'+
+    '<span class="lg-name">'+key+' — '+meta.name+'</span>'+
+    '<span class="lg-res">'+Math.round(meta.residences)+'</span>';
+  item.onclick = () => { sel.value = key; show(key); };
+  legend.appendChild(item);
+  legendItems[key] = item;
+});
+function setLegendDone(routeId, done) {
+  if (legendItems[routeId]) legendItems[routeId].classList.toggle('legend-done', done);
+}
+
+function authLineHtml() {
+  if (!auth.signedIn) {
+    return '<button class="auth-signin-btn" onclick="doSignIn()">' +
+      '<svg width="16" height="16" viewBox="0 0 48 48"><path fill="#4285F4" d="M45.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h11.8c-.5 2.7-2.1 5-4.4 6.6v5.5h7.1c4.2-3.9 6.6-9.6 6.6-16.6z"/><path fill="#34A853" d="M24 46c6 0 11-2 14.6-5.4l-7.1-5.5c-2 1.3-4.5 2.1-7.5 2.1-5.8 0-10.7-3.9-12.4-9.1H4.3v5.7C7.9 41.1 15.3 46 24 46z"/><path fill="#FBBC05" d="M11.6 28.1c-.4-1.3-.7-2.7-.7-4.1s.2-2.8.7-4.1v-5.7H4.3C2.8 17.1 2 20.5 2 24s.8 6.9 2.3 9.8l7.3-5.7z"/><path fill="#EA4335" d="M24 10.9c3.3 0 6.2 1.1 8.5 3.3l6.3-6.3C34.9 4.2 30 2 24 2 15.3 2 7.9 6.9 4.3 14.2l7.3 5.7c1.7-5.2 6.6-9 12.4-9z"/></svg>' +
+      'Sign in with Google to report progress</button>';
+  }
+  if (auth.banned) return '<div class="report-banner locked">🚫 This Google account isn\'t permitted to submit changes.</div>';
+  const tag = auth.authorised ? '<span class="auth-authorised-tag">Authorised editor</span>' : '<span class="auth-pending-tag">Suggests changes for review</span>';
+  return '<div class="auth-line"><span>✓ ' + auth.email + ' ' + tag + '</span><button class="auth-signout" onclick="doSignOut()">sign out</button></div>';
+}
+
+function buildReportPanelHtml(routeId) {
+  if (!isUnlocked(routeId)) {
+    return unlockedRouteId
+      ? '<div class="report-banner locked">🔒 Read-only — this isn\'t the route on your printed sheet.</div>'
+      : '<div class="report-banner locked">🔒 Read-only — open the link or QR code from your printed route sheet to report progress here.</div>';
+  }
+  const roadsForRoute = DATA.roads.filter(r => r.routeId === routeId);
+  let html = authLineHtml();
+  if (!auth.signedIn || auth.banned) return html;
+
+  const marks = loadLocalMarks(routeId);
+  const allDone = roadsForRoute.every(r => r.rowIndex == null || marks[r.id] === 'done' || marks[r.id] === 'pending');
+  html += !auth.authorised
+    ? '<div class="report-banner locked">Not an authorised editor on this ward\'s tracker — your marks go to a reviewer instead of saving directly.</div>'
+    : '';
+  html += '<button class="report-complete-btn' + (allDone ? ' done' : '') + '" onclick="onToggleRouteComplete(\'' + routeId + '\')">' +
+    (allDone ? '✓ Whole route reported' : 'Mark whole route complete') + '</button>';
+  html += '<div class="report-roadlist-label">Or tick off roads individually</div>';
+  html += '<div class="report-roadlist">';
+  roadsForRoute.forEach(r => {
+    const mark = marks[r.id];
+    const done = mark === 'done', pending = mark === 'pending', submitting = mark === 'submitting';
+    const cls = 'report-road-item' + (done ? ' done' : '') + (pending ? ' roadpending' : '');
+    html += '<label class="' + cls + '">' +
+      '<input type="checkbox" ' + (done || pending ? 'checked' : '') + (pending || submitting || r.rowIndex == null ? ' disabled' : '') +
+      ' onchange="setRoadDone(\'' + routeId + '\',\'' + r.id + '\',this.checked)">' +
+      '<span>' + r.street + (pending ? ' <span class="roadpending-mark">⏳ awaiting review</span>' : '') + '</span></label>';
+  });
+  html += '</div>';
+  return html;
+}
+function refreshReportPanelIfActive(routeId) {
+  if (currentSel !== routeId) return;
+  const el = document.getElementById('reportPanel');
+  if (el) el.innerHTML = buildReportPanelHtml(routeId);
+}
+
+let currentSel = 'all';
+
+function show(g) {
+  currentSel = g;
+  Object.values(groups).forEach(l => map.removeLayer(l));
+  Object.values(parkMarkers).forEach(m => map.removeLayer(m));
+  info.innerHTML = '';
+
+  if (g === 'all') {
+    allRoutes.forEach(key => {
+      groups[key].addTo(map);
+      groups[key].eachLayer(layer => {
+        const mark = roadMark(layer._roadData.routeId, layer._roadData.id);
+        layer.setStyle(doneAdjust({weight:6, opacity:0.75}, mark));
+      });
+      if (parkMarkers[key]) parkMarkers[key].addTo(map);
+    });
+    const allPts = [].concat(...Object.values(groupBounds), hubPts);
+    if (allPts.length) map.fitBounds(allPts);
+  } else {
+    allRoutes.forEach(key => {
+      groups[key].addTo(map);
+      const active = key === g;
+      groups[key].eachLayer(layer => {
+        const mark = roadMark(layer._roadData.routeId, layer._roadData.id);
+        layer.setStyle(doneAdjust({weight: active?7:4, opacity: active?0.95:0.18}, mark));
+        if (active) layer.bringToFront();
+      });
+    });
+    if (parkMarkers[g]) parkMarkers[g].addTo(map);
+    if (groupBounds[g] && groupBounds[g].length) map.fitBounds(groupBounds[g], {padding:[40,40]});
+
+    const meta = DATA.routesMeta[g];
+    const streets = [...new Set(groupInfo[g].streets)].sort();
+    info.innerHTML =
+      '<div class="route-badge"><div class="route-swatch" style="background:'+ROUTE_COLOR[g]+'"></div><div class="route-num">Route '+g+'</div></div>'+
+      '<div class="route-name">'+meta.name+'</div>'+
+      '<div class="tag-row"><span class="tag">'+KIND_LABEL[meta.kind]+'</span><span class="tag">'+(meta.shape==='loop'?'Loop':'Out & back')+'</span></div>'+
+      '<div class="res-count">'+Math.round(meta.residences)+' estimated residences</div>'+
+      '<div class="difficulty">'+difficulty(meta.residences)+'</div>'+
+      '<div class="hint"><b>Start/parking:</b> '+meta.startHint+'</div>'+
+      (meta.notes ? '<div class="notes">'+meta.notes+'</div>' : '')+
+      '<div class="streets"><b>Streets:</b><br>'+streets.join(', ')+'</div>'+
+      '<div id="reportPanel"></div>';
+    document.getElementById('reportPanel').innerHTML = buildReportPanelHtml(g);
+  }
+}
+
+sel.onchange = e => { show(e.target.value); };
+
+/* Initial view: unlock and land on the route this page's URL is
+   credentialed for, if any -- otherwise show the whole-ward overview.
+   The address bar is never touched from here on. */
+if (unlockedRouteId) { sel.value = unlockedRouteId; show(unlockedRouteId); }
+else { sel.value = 'all'; show('all'); }
+
+/* ────────────────────────────────────────────
+   GEOLOCATION
+──────────────────────────────────────────── */
+let locationMarker = null;
+let locationCircle = null;
+let watchId = null;
+let locationActive = false;
+
+const locBtn = document.getElementById('locBtn');
+const geoModal = document.getElementById('geoModal');
+
+function dismissModal() {
+  geoModal.style.display = 'none';
+}
+
+function requestLocation() {
+  dismissModal();
+  startTracking();
+}
+
+function startTracking() {
+  if (!navigator.geolocation) {
+    alert('Geolocation is not supported by your browser.');
+    return;
+  }
+  locBtn.disabled = true;
+  locBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg> Locating…';
+
+  watchId = navigator.geolocation.watchPosition(
+    onLocationSuccess,
+    onLocationError,
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+}
+
+function stopTracking() {
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  if (locationMarker) { map.removeLayer(locationMarker); locationMarker = null; }
+  if (locationCircle) { map.removeLayer(locationCircle); locationCircle = null; }
+  locationActive = false;
+  locBtn.disabled = false;
+  locBtn.className = '';
+  locBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg> Show my location';
+}
+
+function toggleLocation() {
+  if (locationActive) { stopTracking(); }
+  else { startTracking(); }
+}
+
+function onLocationSuccess(pos) {
+  const lat = pos.coords.latitude;
+  const lng = pos.coords.longitude;
+  const acc = pos.coords.accuracy;
+
+  locBtn.disabled = false;
+  locBtn.className = 'active';
+  locBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg> Stop showing location';
+  locationActive = true;
+
+  if (locationCircle) {
+    locationCircle.setLatLng([lat, lng]).setRadius(acc);
+  } else {
+    locationCircle = L.circle([lat, lng], {
+      radius: acc, color: '#1a73e8', fillColor: '#1a73e8',
+      fillOpacity: 0.1, weight: 1, opacity: 0.4
+    }).addTo(map);
+  }
+
+  const iconHtml = '<div style="width:18px;height:18px;background:#1a73e8;border:3px solid white;border-radius:50%;box-shadow:0 2px 8px rgba(26,115,232,0.6)"></div>';
+  const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [18,18], iconAnchor: [9,9] });
+
+  if (locationMarker) {
+    locationMarker.setLatLng([lat, lng]);
+  } else {
+    locationMarker = L.marker([lat, lng], {icon, zIndexOffset: 1000})
+      .addTo(map)
+      .bindPopup('You are here<br><small>±' + Math.round(acc) + 'm accuracy</small>');
+    map.setView([lat, lng], Math.max(map.getZoom(), 16));
+  }
+}
+
+function onLocationError(err) {
+  locBtn.disabled = false;
+  locBtn.className = '';
+  locBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg> Show my location';
+  locationActive = false;
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+
+  let msg = 'Unable to get your location.';
+  if (err.code === 1) msg = 'Location access was denied. Please allow location in your browser settings.';
+  else if (err.code === 2) msg = 'Location unavailable. Please check your GPS signal.';
+  else if (err.code === 3) msg = 'Location request timed out.';
+  alert(msg);
+}
+
+if (!navigator.geolocation) {
+  geoModal.style.display = 'none';
+}
+
+/* ── Panel collapse ── */
+function togglePanel() {
+  document.getElementById('ctrl').classList.toggle('collapsed');
+}
+</script>
+</body></html>
