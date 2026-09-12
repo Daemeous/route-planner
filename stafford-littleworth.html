@@ -250,8 +250,9 @@ function matchRouteFromHash(hashRaw) {
 const unlockedRouteId = matchRouteFromHash(window.location.hash);
 
 const map = L.map('map', {tap: true, tapTolerance: 15});
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-  attribution:'© OpenStreetMap contributors', maxZoom:19
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_32cj_1_90b7918b630fcb520359e0bc',{
+  subdomains: 'abcd', maxZoom:19,
+  attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>'
 }).addTo(map);
 
 /* ────────────────────────────────────────────

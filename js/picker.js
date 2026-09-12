@@ -25,8 +25,11 @@ const MapPicker = (() => {
     if (map) return;
     const e = els();
     map = L.map(e.mapDiv, { tap: true });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors', maxZoom: 19,
+    // Same CARTO switch as app_template.html / js/printSheets.js -- raw OSM
+    // tile.openstreetmap.org blocks apps under real usage.
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_32cj_1_90b7918b630fcb520359e0bc', {
+      subdomains: 'abcd', maxZoom: 19,
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
     }).addTo(map);
     map.on('click', ev => placeMarker(ev.latlng.lat, ev.latlng.lng));
   }

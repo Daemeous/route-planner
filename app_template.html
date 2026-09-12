@@ -255,8 +255,12 @@ const unlockedRouteId = matchRouteFromHash(window.location.hash);
 function isUnlocked(routeId) { return NO_SECRET_GATE || routeId === unlockedRouteId; }
 
 const map = L.map('map', {tap: true, tapTolerance: 15});
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-  attribution:'© OpenStreetMap contributors', maxZoom:19
+// CARTO Basemaps API key (free tier, 5M tile requests/month) -- raw OSM
+// tile.openstreetmap.org is for light/evaluation use only and blocks apps
+// like this one under real usage; see js/printSheets.js for the same switch.
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_32cj_1_90b7918b630fcb520359e0bc',{
+  subdomains: 'abcd', maxZoom:19,
+  attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>'
 }).addTo(map);
 
 /* ────────────────────────────────────────────
