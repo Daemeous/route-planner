@@ -1,6 +1,7 @@
 // Turns a map-data payload into the final standalone ward app HTML --
 // port of pipeline/html_app.py.
 'use strict';
+if (typeof require !== 'undefined' && typeof Colors === 'undefined') { global.Colors = require('./colors'); }
 
 const HtmlApp = (() => {
   function toLatLon(geometry) {
@@ -56,11 +57,13 @@ const HtmlApp = (() => {
 
   function buildHtml(data, template, wardName, { appsScriptUrl = '', googleClientId = '', noSecretGate = false } = {}) {
     const payload = exportHtmlData(data);
+    const routeColors = Colors.routeColors(data.routes.map(r => r.id));
     let out = template.replace('__HTML_DATA__', JSON.stringify(payload));
     out = out.replaceAll('__WARD_NAME__', wardName);
     out = out.replace('__APPS_SCRIPT_URL__', appsScriptUrl);
     out = out.replace('__GOOGLE_CLIENT_ID__', googleClientId);
     out = out.replace('__NO_SECRET_GATE__', noSecretGate ? 'true' : 'false');
+    out = out.replace('__ROUTE_COLOR__', JSON.stringify(routeColors));
     return out;
   }
 
