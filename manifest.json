@@ -1,14 +1,4 @@
 {
-  "stafford-littleworth.html": {
-    "ward": "Littleworth",
-    "constituency": "Stafford",
-    "generatedAt": "2026-08-30T17:53:33.659Z"
-  },
-  "stafford-penkside.html": {
-    "ward": "Penkside",
-    "constituency": "Stafford",
-    "generatedAt": "2026-08-30T17:49:53.361Z"
-  },
   "stafford-baswich.html": {
     "ward": "Baswich",
     "constituency": "Stafford",
@@ -28,5 +18,10 @@
     "ward": "Eccleshall",
     "constituency": "Stafford",
     "generatedAt": "2026-09-12T17:19:23.699Z"
+  },
+  "stafford-holmcroft.html": {
+    "ward": "Holmcroft",
+    "constituency": "Stafford",
+    "generatedAt": "2026-09-18T10:09:55.270Z"
   }
 }
