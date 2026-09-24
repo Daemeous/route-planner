@@ -10,6 +10,7 @@
 <script src="js/csv.js"></script>
 <script src="js/sheets.js"></script>
 <script src="js/directionsMap.js"></script>
+<script src="js/progressMatch.js"></script>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; }
@@ -68,6 +69,20 @@
   .step-dir { font-size: 11.5px; color: #5b6470; white-space: nowrap; }
   .tick { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #d4d7db; background: #fff; color: #c0c4c9; font-size: 14px; font-weight: 800; cursor: pointer; }
   .step.done .tick { background: #0a8a3a; border-color: #0a8a3a; color: #fff; }
+  .catchup-opt { font-size: 12.5px; margin-top: 8px; display: flex; gap: 7px; align-items: flex-start; cursor: pointer; }
+  .catchup-opt input { margin-top: 2px; accent-color: #1a73e8; }
+  .catchup-sim { font-size: 11.5px; color: #5b6470; margin: 4px 0 0 21px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .catchup-sim input[type=number] { width: 48px; font: inherit; padding: 1px 4px; }
+  .card { border-radius: 8px; padding: 9px 11px; margin-top: 8px; font-size: 12.5px; line-height: 1.5; }
+  .card.here { background: #eef4fe; color: #1a3d73; }
+  .card.catchup { background: #fff4d6; color: #5a4300; }
+  .card.lost { background: #fdecea; color: #7a1f14; }
+  .card .btns { display: flex; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
+  .card button { font: inherit; font-size: 12px; font-weight: 600; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer; background: #1a73e8; color: #fff; }
+  .card button.plain { background: rgba(0,0,0,.08); color: inherit; }
+  .card .alts { font-size: 11.5px; margin-top: 6px; opacity: .9; }
+  .card .alts button { background: none; color: inherit; text-decoration: underline; padding: 0 3px; font-weight: 600; }
+  .card .when { font-size: 11px; opacity: .75; }
   .finish { padding: 12px 16px; font-size: 12.5px; color: #0a6a2a; background: #eaf7ee; }
   @media (max-width: 820px) {
     .phone { grid-template-columns: 1fr; grid-template-rows: 50vh auto; height: auto; }
@@ -177,6 +192,12 @@
           <li><b>Route's own start</b> (default, for people going out on their own): drive routes start at their parking spot; others start at their busiest junction.</li>
           <li><b>My location</b> uses your phone's GPS, or tap the map to pretend you're somewhere. It lists the nearest routes in every ward by <b>walking distance</b> and starts the chosen one at the corner that's the shortest walk away. This is a first step towards generating routes on the spot around wherever someone is.</li>
           <li><b>Event start (pub)</b> is the action-day behaviour: every walk route sets off from the ward's pub.</li>
+        </ul>
+        <h3>Catching up your progress</h3>
+        <ul>
+          <li>Optional, on by default. Each time you open or come back to the page it takes one location reading, works out which step you're on from where you were last time and how long ago, and offers to tick off the steps in between. It never ticks anything without asking, and nothing is recorded while your phone is locked.</li>
+          <li>It ignores detours up driveways, and counts stretches you skipped by going in at one house and out further down. In simulated tests about 9 in 10 catch-ups land on the right step or the one next to it, and mistakes lean towards under-ticking.</li>
+          <li>To try it at a desk, tick "Desk test" and tap the map where you'd be each time you look at your phone.</li>
         </ul>
         <h3>Known gaps in this prototype</h3>
         <ul>
@@ -493,9 +514,11 @@ function renderApp(ctx) {
     </div>
     ${state.startMode === 'me' ? nearestHtml() : ''}
     <div class="rule">Keep the <b>road on your left</b>, so traffic comes towards you. The letterboxes you're doing are on your <b>right</b>. Only cross where a step tells you to.</div>
-    <div class="progress"><span>${state.done.size} of ${legs.length} steps done</span><span>~${Math.round(doneHomes)} of ${Math.round(st.homes)} homes</span></div>`;
+    <div class="progress"><span>${state.done.size} of ${legs.length} steps done</span><span>~${Math.round(doneHomes)} of ${Math.round(st.homes)} homes</span></div>
+    ${catchUpHtml()}`;
 
   wireNearest();
+  wireCatchUp();
   const list = document.getElementById('steps');
   list.innerHTML = legs.map(l => `
     <li class="step${state.sel === l.n ? ' sel' : ''}${state.done.has(l.n) ? ' done' : ''}" data-n="${l.n}">
@@ -531,6 +554,7 @@ function renderApp(ctx) {
 function redrawAppLegs() {
   if (!appMap || !state.plan) return;
   drawLegs(appMap, state.plan, { sel: state.sel, done: state.done, offsetPx: 4, onPick: n => selectStep(n, true, true) });
+  drawProgress();
 }
 
 function selectStep(n, zoom, fromMap) {
@@ -548,13 +572,226 @@ function showApp(ctx) {
   if (!appMap) {
     appMap = makeMap('appMap', { interactive: true });
     appMap.on('zoomend', redrawAppLegs);
-    appMap.on('click', e => { if (state.startMode === 'me') setMe([e.latlng.lat, e.latlng.lng], true); });
+    appMap.on('click', e => {
+      if (prog.sim && catchUpOn()) { simulateLook([e.latlng.lat, e.latlng.lng]); return; }
+      if (state.startMode === 'me') setMe([e.latlng.lat, e.latlng.lng], true);
+    });
   }
   appMap.invalidateSize();
   drawStatic(appMap, ctx, state.plan, { labels: false });
   fitRoute(appMap, ctx, state.plan, 30);
   renderApp(ctx);
   redrawAppLegs();
+}
+
+// ---- Catching up progress when you look at your phone ----------------------
+// Optional (on by default). A web page gets no location while the phone is
+// locked, so there's no track to replay: each time you open or come back to
+// the page it takes ONE fix and works out where along the route you must be
+// now, given where you were last time and how long ago that was (see
+// js/progressMatch.js). Everything since is offered for ticking -- never
+// ticked automatically. Location never leaves the phone.
+const CATCHUP_KEY = 'wd:catchup';
+function catchUpOn() { try { return localStorage.getItem(CATCHUP_KEY) !== 'off'; } catch (e) { return true; } }
+function setCatchUpOn(on) { try { localStorage.setItem(CATCHUP_KEY, on ? 'on' : 'off'); } catch (e) { /* private mode */ } }
+
+const prog = {
+  track: null,      // ProgressMatch track for the current plan
+  pos: null, t: null, // route position (m) and time (ms) at the last look
+  prevPos: null,    // position the look before -- the stretch since is drawn fainter
+  fix: null,        // last raw GPS fix {latlng, accuracy}
+  card: null,       // what the panel card is showing
+  pace: ProgressMatch.DEFAULT_PACE_MPS, // learned from confirmed catch-ups
+  sim: false, simMinutes: 5, locating: false,
+};
+function resetProgress() { Object.assign(prog, { pos: null, t: null, prevPos: null, fix: null, card: null }); }
+
+const stepLegs = () => state.plan.legs.filter(l => l.type === 'leg');
+const legByN = n => stepLegs().find(l => l.n === n);
+const stepLabel = n => { const l = legByN(n); return l ? `step ${n} · ${esc(l.street)} (${esc(l.side)})` : `step ${n}`; };
+const rangeText = ns => (ns.length === 1 ? `step ${ns[0]}` : `steps ${ns[0]}–${ns[ns.length - 1]}`);
+function agoText(ms) {
+  const m = Math.round((Date.now() - ms) / 60000);
+  return m < 1 ? 'just now' : m === 1 ? '1 minute ago' : `${m} minutes ago`;
+}
+
+function catchUpHtml() {
+  const on = catchUpOn();
+  let html = `<label class="catchup-opt"><input type="checkbox" id="catchUpChk"${on ? ' checked' : ''}>
+    <span>Catch up my progress when I look at my phone</span></label>`;
+  if (!on) return html;
+  html += `<div class="catchup-sim"><label><input type="checkbox" id="simChk"${prog.sim ? ' checked' : ''}> Desk test: tap the map to pretend you looked at your phone there,</label>
+    <input type="number" id="simMin" min="0" step="1" value="${prog.simMinutes}"> minutes after the last look</div>`;
+  const c = prog.card;
+  if (!c) {
+    return html + `<div class="card here">${prog.locating ? 'Finding where you are…' : 'Opens on your position each time you come back to this page.'}
+      <div class="btns"><button id="locateBtn"${prog.locating ? ' disabled' : ''}>📍 Check where I am</button></div></div>`;
+  }
+  const altsHtml = c.alts && c.alts.length
+    ? `<div class="alts">Not right? I'm on ${c.alts.map((a, i) => `<button data-alt="${i}">${stepLabel(a.n)}</button>`).join(' or ')}</div>` : '';
+  if (c.kind === 'lost') {
+    return html + `<div class="card lost">📍 Can't place you on your next few steps${c.d != null ? ` (you're about ${metres(c.d)} from the route)` : ''}. Pick your step from the list below, or check it's the right route.
+      <div class="btns"><button id="locateBtn">📍 Try again</button></div></div>`;
+  }
+  const b = c.best;
+  if (c.kind === 'catchup') {
+    return html + `<div class="card catchup">📍 Looks like you're on <b>${stepLabel(b.n)}</b>, about ${metres(b.into)} in. Tick off ${rangeText(c.toTick)} as done?
+      <div class="btns"><button id="tickYes">Yes, tick ${c.toTick.length === 1 ? 'it' : `all ${c.toTick.length}`}</button><button class="plain" id="tickNo">No</button></div>${altsHtml}</div>`;
+  }
+  const next = legByN(b.n + 1);
+  return html + `<div class="card here">📍 You're on <b>${stepLabel(b.n)}</b>. About ${metres(Math.max(0, b.len - b.into))} to the end of this step${next ? `, then: ${esc(next.cue)}` : '.'}
+    <div class="when">Checked ${agoText(prog.t)}.</div>
+    <div class="btns"><button id="locateBtn">📍 Check again</button></div>${altsHtml}</div>`;
+}
+
+function wireCatchUp() {
+  const chk = document.getElementById('catchUpChk');
+  if (chk) chk.addEventListener('change', () => {
+    setCatchUpOn(chk.checked);
+    if (!chk.checked) resetProgress();
+    refreshApp();
+  });
+  const sim = document.getElementById('simChk');
+  if (sim) sim.addEventListener('change', () => { prog.sim = sim.checked; });
+  const min = document.getElementById('simMin');
+  if (min) min.addEventListener('change', () => { prog.simMinutes = Math.max(0, +min.value || 0); });
+  const loc = document.getElementById('locateBtn');
+  if (loc) loc.addEventListener('click', () => lookNow());
+  const yes = document.getElementById('tickYes');
+  if (yes) yes.addEventListener('click', () => confirmCatchUp());
+  const no = document.getElementById('tickNo');
+  if (no) no.addEventListener('click', () => { prog.card = { ...prog.card, kind: 'here' }; refreshApp(); });
+  document.querySelectorAll('.card .alts button').forEach(btn => btn.addEventListener('click', () => {
+    const c = prog.card, alt = c.alts[+btn.dataset.alt];
+    const others = [c.best, ...c.alts.filter(a => a !== alt)];
+    placeAt(alt, others, c.fromPos, c.elapsedS, prog.t);
+  }));
+}
+
+function refreshApp() {
+  renderApp(routeContext(state.ward, state.route));
+  redrawAppLegs();
+}
+
+// One look at the phone: a fix at `now`, compared with the last look.
+function processFix(latlng, accuracy, now) {
+  if (!prog.track || !prog.track.pieces.length) return;
+  const elapsedS = prog.t != null ? (now - prog.t) / 1000 : null;
+  const fromPos = prog.pos != null ? prog.pos : 0;
+  prog.fix = { latlng, accuracy };
+  const r = ProgressMatch.locate(prog.track, latlng, { fromPos, elapsedS, accuracy, paceMps: prog.pace });
+  if (!r.best) {
+    // How far off the route are they, for the message?
+    let d = null;
+    for (const l of stepLegs()) for (const p of l.latlngs) { const x = L.latLng(latlng).distanceTo(p); if (d == null || x < d) d = x; }
+    prog.card = { kind: 'lost', d };
+    refreshApp();
+    return;
+  }
+  placeAt(r.best, r.alternatives, fromPos, elapsedS, now);
+}
+
+function placeAt(best, alts, fromPos, elapsedS, now) {
+  const toTick = stepLegs().filter(l => l.n < best.n && !state.done.has(l.n)).map(l => l.n);
+  prog.prevPos = fromPos;
+  prog.pos = best.pos; prog.t = now;
+  prog.card = { kind: toTick.length ? 'catchup' : 'here', best, alts, toTick, fromPos, elapsedS };
+  state.sel = best.n;
+  refreshApp();
+  const li = document.querySelector(`.step[data-n="${best.n}"]`);
+  if (li) li.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function confirmCatchUp() {
+  const c = prog.card;
+  c.toTick.forEach(n => state.done.add(n));
+  // Learn this walker's pace from what they've just confirmed.
+  if (c.elapsedS > 60 && c.best.pos > c.fromPos) {
+    const seen = (c.best.pos - c.fromPos) / c.elapsedS;
+    prog.pace = Math.min(1.2, Math.max(0.15, 0.5 * prog.pace + 0.5 * seen));
+  }
+  prog.card = { ...c, kind: 'here', toTick: [] };
+  refreshApp();
+}
+
+// Real GPS: one good fix, waiting up to ~10 s for the phone to settle.
+function getFix() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error("This browser can't share its location.")); return; }
+    let best = null;
+    const done = () => { navigator.geolocation.clearWatch(id); clearTimeout(timer); best ? resolve(best) : reject(new Error('No location yet -- try again in the open.')); };
+    const id = navigator.geolocation.watchPosition(pos => {
+      const f = { latlng: [pos.coords.latitude, pos.coords.longitude], accuracy: pos.coords.accuracy };
+      if (!best || f.accuracy < best.accuracy) best = f;
+      if (best.accuracy <= 20) done();
+    }, err => { if (!best) { navigator.geolocation.clearWatch(id); clearTimeout(timer); reject(err); } }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+    const timer = setTimeout(done, 10000);
+  });
+}
+
+async function lookNow() {
+  if (!catchUpOn() || prog.locating || state.view !== 'app') return;
+  prog.locating = true;
+  refreshApp();
+  try {
+    const f = await getFix();
+    prog.locating = false;
+    // Readings the phone itself rates as poor are ignored.
+    if (f.accuracy > 60) { prog.card = { kind: 'lost', d: null }; refreshApp(); return; }
+    processFix(f.latlng, f.accuracy, Date.now());
+  } catch (e) {
+    prog.locating = false;
+    refreshApp();
+    console.warn('Location unavailable:', e.message || e);
+  }
+}
+
+// Desk test: a tap is a look at the phone, simMinutes after the previous one.
+function simulateLook(latlng) {
+  const now = prog.t != null ? prog.t + prog.simMinutes * 60000 : Date.now();
+  processFix(latlng, 10, now);
+}
+
+// Coming back to the page = looking at the phone. Only automatic once
+// location permission has been given; otherwise it waits for the button.
+async function locationAllowed() {
+  try { return (await navigator.permissions.query({ name: 'geolocation' })).state === 'granted'; } catch (e) { return false; }
+}
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && catchUpOn() && !prog.sim && await locationAllowed()) lookNow();
+});
+
+// Map: "you are here" on the route, the last 50 m as a trail on your
+// pavement, and the rest of the stretch since your last look fainter.
+function drawProgress() {
+  if (!appMap) return;
+  if (!appMap.progLayer) appMap.progLayer = L.layerGroup().addTo(appMap);
+  const layer = appMap.progLayer;
+  layer.clearLayers();
+  if (!catchUpOn() || !prog.track || prog.pos == null) return;
+  const onPavement = (pieceN, latlngs) => {
+    const l = pieceN != null ? legByN(pieceN) : null;
+    return offsetLatLngs(appMap, latlngs, 4 * (l && l.pavement === 'right' ? -1 : 1));
+  };
+  const trailFrom = Math.max(0, prog.pos - 50);
+  if (prog.prevPos != null && prog.prevPos < trailFrom) {
+    for (const pc of ProgressMatch.slice(prog.track, prog.prevPos, trailFrom)) {
+      L.polyline(onPavement(pc.n, pc.latlngs), { color: '#1a73e8', weight: 9, opacity: 0.18, lineCap: 'round', interactive: false }).addTo(layer);
+    }
+  }
+  for (const pc of ProgressMatch.slice(prog.track, trailFrom, prog.pos)) {
+    L.polyline(onPavement(pc.n, pc.latlngs), { color: '#1a73e8', weight: 10, opacity: 0.4, lineCap: 'round', interactive: false }).addTo(layer);
+  }
+  if (prog.fix) {
+    L.circle(prog.fix.latlng, { radius: prog.fix.accuracy, color: '#1a73e8', weight: 1, opacity: 0.4, fillOpacity: 0.06, interactive: false }).addTo(layer);
+    L.circleMarker(prog.fix.latlng, { radius: 3, color: '#5b6470', weight: 1, fillColor: '#5b6470', fillOpacity: 0.8, interactive: false }).addTo(layer);
+  }
+  const here = ProgressMatch.at(prog.track, prog.pos);
+  if (here) {
+    const l = legByN(here.n);
+    const [pt] = here && l ? onPavement(here.n, [here.latlng]) : [here.latlng];
+    L.marker(pt || here.latlng, { icon: L.divIcon({ className: 'me-dot', iconSize: [16, 16] }), keyboard: false, zIndexOffset: 2000, interactive: false }).addTo(layer);
+  }
 }
 
 // ---- Print view ------------------------------------------------------------
@@ -851,6 +1088,7 @@ function setMe(latlng, jump) {
 function render() {
   const ctx = routeContext(state.ward, state.route);
   state.plan = WalkOrder.plan({ roads: ctx.roads }, { start: ctx.start || undefined, network: netFor(state.ward) });
+  prog.track = ProgressMatch.buildTrack(state.plan.legs);
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === state.view));
   document.getElementById('appView').hidden = state.view !== 'app';
   document.getElementById('printView').hidden = state.view !== 'print';
@@ -860,7 +1098,7 @@ function render() {
   if (state.view === 'app') showApp(ctx); else showPrint(ctx);
 }
 
-function resetRouteState() { state.sel = null; state.done = new Set(); }
+function resetRouteState() { state.sel = null; state.done = new Set(); resetProgress(); }
 
 readHash();
 fillWardSelect();
@@ -878,6 +1116,8 @@ document.getElementById('startSel').addEventListener('change', e => { state.star
 document.getElementById('routeSel').addEventListener('change', e => { state.route = e.target.value; resetRouteState(); render(); });
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => { state.view = b.dataset.view; render(); }));
 render();
-loadLiveNetwork();
+// First look on opening the page (if location permission was already given),
+// once the live walking network has loaded -- that reload resets progress.
+loadLiveNetwork().then(locationAllowed).then(ok => { if (ok && catchUpOn()) lookNow(); });
 </script>
 </body></html>
