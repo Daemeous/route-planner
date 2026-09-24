@@ -51,8 +51,10 @@ const HtmlApp = (() => {
 
     return {
       ward: data.ward,
+      // General ward routes (no event start point): the app shows no start/hub markers.
+      general: !!data.general,
       start: { lat: Math.round(startLat * 1e7) / 1e7, lon: Math.round(startLon * 1e7) / 1e7, label: data.start.label },
-      hubs,
+      hubs: data.general ? [] : hubs,
       routesMeta,
       roads,
     };

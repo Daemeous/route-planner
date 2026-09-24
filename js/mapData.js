@@ -42,16 +42,26 @@ const MapData = (() => {
     return topDisplay.join(' & ');
   }
 
+  // General ward routes have no event start: every route has its own
+  // suggested spot -- somewhere to begin on foot for a street route, or to
+  // park for a lane route.
+  function generalStartHintText(kind, spotLabel) {
+    const spot = String(spotLabel).replace(/\s*\(part [\d.]+\)$/, '');
+    return kind === 'drive'
+      ? `Park on ${spot} (suggested — please use your own discretion)`
+      : `Start on ${spot} (suggested — if you're driving, park nearby with discretion)`;
+  }
+
   function startHintText(kind, pubLabel, parkingLabel) {
     if (kind === 'walk') return `${pubLabel} (event start point)`;
     if (kind === 'hybrid') return `Drive to ${parkingLabel} and park there (suggested — please use your own discretion), then walk the route`;
     return `Park on ${parkingLabel} (suggested — please use your own discretion)`;
   }
 
-  function routeFromCluster(cid, c, roads, adjacency, hubPoint, hubLabel, hubId, originalGeometry) {
+  function routeFromCluster(cid, c, roads, adjacency, hubPoint, hubLabel, hubId, originalGeometry, general = false) {
     const shape = Cluster.clusterShape(c.roads, adjacency);
     let marker = null;
-    if (c.kind !== 'walk') {
+    if (c.kind !== 'walk' || general) {
       const parkingName = Cluster.pickParkingRoad(roads, c.roads, adjacency);
       const ref = Cluster.roadCentroid(roads[parkingName], 'fullGeometry');
       const snapped = Geo.nearestPointOnMultiline(roads[parkingName].fullGeometry, ref);
@@ -97,12 +107,12 @@ const MapData = (() => {
       kind: c.kind,
       shape,
       residencesTotal: Math.round(c.residences * 10) / 10,
-      startHint: startHintText(c.kind, hubLabel, marker ? marker.label : null),
+      startHint: general ? generalStartHintText(c.kind, marker.label) : startHintText(c.kind, hubLabel, marker ? marker.label : null),
       notes,
       roads: roadList,
       marker,
     };
-    if (hubId !== undefined) {
+    if (hubId !== undefined && !general) {
       route.hubId = hubId;
       route.hub = { point: hubPoint, label: hubLabel };
     }
@@ -130,7 +140,10 @@ const MapData = (() => {
   }
 
   // hubSpecs: [{id, label, point, clusters}]
-  function buildMapDataMultihub(roads, adjacency, hubSpecs, wardName, originalGeometry) {
+  // general: routes with no event start (see Pipeline.buildGeneral) -- the
+  // local areas were only used to organise the clustering, so they're not
+  // passed on as hubs/start points.
+  function buildMapDataMultihub(roads, adjacency, hubSpecs, wardName, originalGeometry, { general = false } = {}) {
     const totalRoutes = hubSpecs.reduce((s, h) => s + h.clusters.length, 0);
     const ids = genIds(totalRoutes);
     let idIdx = 0;
@@ -139,11 +152,22 @@ const MapData = (() => {
       hubsOut.push({ id: hub.id, label: hub.label, point: hub.point });
       for (const c of hub.clusters) {
         const cid = ids[idIdx++];
-        routesOut.push(routeFromCluster(cid, c, roads, adjacency, hub.point, hub.label, hub.id, originalGeometry));
+        routesOut.push(routeFromCluster(cid, c, roads, adjacency, hub.point, hub.label, hub.id, originalGeometry, general));
       }
     }
     const secrets = SecretWords.assignSecretWords(routesOut.map(r => r.id), wardName);
     for (const r of routesOut) r.secret = secrets[r.id];
+    if (general) {
+      const b = boundsOf(routesOut);
+      return {
+        ward: wardName,
+        general: true,
+        routes: routesOut,
+        hubs: [],
+        start: { point: [(b.lonMin + b.lonMax) / 2, (b.latMin + b.latMax) / 2], label: `${wardName} ward` },
+        bounds: b,
+      };
+    }
     return {
       ward: wardName,
       routes: routesOut,
@@ -153,7 +177,7 @@ const MapData = (() => {
     };
   }
 
-  return { genIds, routeName, startHintText, routeFromCluster, buildMapData, buildMapDataMultihub };
+  return { genIds, routeName, startHintText, generalStartHintText, routeFromCluster, buildMapData, buildMapDataMultihub };
 })();
 
 if (typeof module !== 'undefined') module.exports = MapData;

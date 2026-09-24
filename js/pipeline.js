@@ -76,7 +76,7 @@ const Pipeline = (() => {
   // results unless overridden -- mirrors cmd_build_multihub. Async because
   // it hits the Overpass API once per settlement (already-fetched `pubs`
   // list is passed in so callers can fetch it once for a whole district).
-  async function buildMultiHub(rows, wardName, pubs, { maxRadiusM = 1000, overrides = {}, clusterOpts = {} } = {}) {
+  async function buildMultiHub(rows, wardName, pubs, { maxRadiusM = 1000, overrides = {}, clusterOpts = {}, general = false } = {}) {
     let roadsAll = Graph.loadRoads(rows, { ward: wardName, excludeNonResidential: true });
     const originalGeometry = captureOriginalGeometry(roadsAll);
     roadsAll = Graph.splitDisconnectedRoads(roadsAll);
@@ -115,12 +115,23 @@ const Pipeline = (() => {
       hubSpecs.push({ id: hubIds[i], label: pubName, point: pubPoint, clusters });
     }
 
-    const merged = mergeHubsSharingAPub(hubSpecs);
+    const merged = general ? hubSpecs : mergeHubsSharingAPub(hubSpecs);
     const mergedAdjacency = Graph.buildAdjacency(mergedRoads);
-    return MapData.buildMapDataMultihub(mergedRoads, mergedAdjacency, merged, wardName, originalGeometry);
+    return MapData.buildMapDataMultihub(mergedRoads, mergedAdjacency, merged, wardName, originalGeometry, { general });
   }
 
-  return { weightedCentroid, bboxOfRoads, genHubIds, mergeHubsSharingAPub, buildSingleHub, buildMultiHub };
+  // General ward routes: no event start point. For covering a whole ward
+  // over time with people going out on their own, rather than an action day.
+  // The ward is split into its local areas (just to organise the
+  // clustering -- each seeded from its own centre, no pub lookup), routes
+  // are sized by effort (a rural home counts as ~6 town homes, see
+  // cluster.js), each is a walk (streets) or a drive (lanes), and each gets
+  // its own suggested start spot. Works for town and rural wards alike.
+  async function buildGeneral(rows, wardName, { clusterOpts = {} } = {}) {
+    return buildMultiHub(rows, wardName, [], { clusterOpts: { ...clusterOpts, sizeBy: 'effort', general: true }, general: true });
+  }
+
+  return { weightedCentroid, bboxOfRoads, genHubIds, mergeHubsSharingAPub, buildSingleHub, buildMultiHub, buildGeneral };
 })();
 
 if (typeof module !== 'undefined') module.exports = Pipeline;

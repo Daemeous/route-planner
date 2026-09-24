@@ -263,7 +263,8 @@ const Cluster = (() => {
     for (const c of out) {
       const minD = Math.min(...c.roads.map(n => distFromStart[n]));
       c.minDistFromStartM = Math.round(minD);
-      if (minD <= walkRadiusM) c.kind = 'walk';
+      if (opts.general) c.kind = 'walk'; // no event start to walk or drive from; lanes become 'drive' below
+      else if (minD <= walkRadiusM) c.kind = 'walk';
       else if (minD <= hybridRadiusM) c.kind = 'hybrid';
       else c.kind = 'drive';
       // Effort sizing: a long, sparse route is a lane to drive along and

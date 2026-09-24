@@ -429,7 +429,8 @@ function applyRoadVisual(routeId, roadId) {
 /* ── Start + parking markers ── */
 function markerIcon(cls) { return L.divIcon({html:'<div class="'+cls+'"></div>', className:'', iconSize:[20,20], iconAnchor:[10,10]}); }
 
-const hubs = DATA.hubs && DATA.hubs.length ? DATA.hubs : [DATA.start];
+// General ward routes have no event start point to mark -- each route's own start spot is shown instead.
+const hubs = DATA.general ? [] : (DATA.hubs && DATA.hubs.length ? DATA.hubs : [DATA.start]);
 const multiHub = hubs.length > 1;
 const hubPts = [];
 hubs.forEach((hub, i) => {

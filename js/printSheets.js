@@ -106,22 +106,27 @@ const PrintSheets = (() => {
     const hubs = data.hubs;
     const multiHub = hubs && hubs.length > 1;
 
-    const startBlock = multiHub
+    const startBlock = data.general
+      ? `<p><b>General ward routes:</b> there's no event start point. These routes are for going out on your own, whenever suits you. Each route starts at its own suggested spot, shown on its sheet.</p>`
+      : multiHub
       ? `<p><b>Event start points:</b> this ward is spread across several villages/areas, each with its own local start — see each route's "Start / parking" line for which one applies.</p>
          <ul>${hubs.map(h => `<li>${esc(h.label)}</li>`).join('')}</ul>`
       : `<p><b>Event start point:</b> ${esc(data.start.label)}</p>`;
 
     const startDesc = multiHub ? 'the start point named on each route' : esc(data.start.label);
+    const startTip = data.general
+      ? 'Each route starts at its own suggested spot, shown on its sheet and map. Street routes are walked; lane routes are driven, delivering both sides as you go.'
+      : null;
     const tips = directions ? [
       'Follow the numbered steps on your sheet in order, and tick each one off as you go.',
       "Keep the road on your <b>left</b>, so traffic comes towards you. The letterboxes you're doing are on your <b>right</b>. Only cross the road where a step tells you to.",
       "Each side of a road is its own step: you'll go up one side and come back down the other. Only deliver the streets in your steps, even if you walk past others.",
-      `"Walk" routes start on foot from ${startDesc}. "Drive-to" and "Hybrid" routes start from a suggested free-parking road shown on the map.`,
+      startTip || `"Walk" routes start on foot from ${startDesc}. "Drive-to" and "Hybrid" routes start from a suggested free-parking road shown on the map.`,
       "Scan the QR code on your route's sheet to open the same directions on your phone, with the map following you round.",
       "Parking spots marked on the maps are suggestions on a nearby free-parking road, not official spaces. Use your own discretion and don't block driveways or verges.",
     ] : [
       'Deliver the FULL length of every road listed on your sheet, both sides — do not deliver on roads that are not on your sheet, even if you walk past them to connect two of your roads.',
-      `"Walk" routes start on foot from ${startDesc}. "Drive-to" routes start from a suggested free-parking road shown on the map — park there and walk the route. "Hybrid" routes are driven to and then walked in full.`,
+      startTip || `"Walk" routes start on foot from ${startDesc}. "Drive-to" routes start from a suggested free-parking road shown on the map — park there and walk the route. "Hybrid" routes are driven to and then walked in full.`,
       'A "Loop" route naturally returns you close to where you started — good for a pair splitting both sides of the road at once. "Out & back" means walk out delivering one side, then back delivering the other.',
       "Scan the QR code on your route's page to open the live interactive map on your phone.",
       "Parking spots marked on the maps are suggestions on a nearby free-parking road, not official spaces — use your own discretion and don't block driveways or verges.",
@@ -154,7 +159,7 @@ const PrintSheets = (() => {
         paths += `<path d="${d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`;
       }
     }
-    const hubs = data.hubs && data.hubs.length ? data.hubs : [data.start];
+    const hubs = data.general ? [] : (data.hubs && data.hubs.length ? data.hubs : [data.start]);
     let hubMarkers = '';
     for (const h of hubs) {
       const [x, y] = project(h.point);
@@ -314,15 +319,18 @@ const PrintSheets = (() => {
       `<div class="txt"><b>${esc(l.street)}</b> <span class="sd">${sideDir} · ${homes}</span><br><span class="cue">${esc(l.cue)}</span></div></li>`;
   }
 
-  function directionsRoutePagesHtml(route, color, appUrlBase, wardName) {
+  function directionsRoutePagesHtml(route, color, appUrlBase, wardName, general = false) {
     const d = route.directions;
     const steps = d.legs.filter(l => l.type === 'leg');
     const lanes = steps.some(l => l.pavement === 'both');
+    const generalWalk = general && route.kind === 'walk' && route.marker;
     const url = `${appUrlBase}#${route.secret}`;
     const colorLight = tint(color);
     let subtitle = `${esc(wardName)} Ward · Leaflet Delivery Round Sheet`;
     if (route.hub) subtitle += ` · Area: ${esc(route.hub.label)}`;
-    const startLine = route.marker
+    const startLine = generalWalk
+      ? `Start on ${esc(String(route.marker.label).replace(/\s*\(part [\d.]+\)$/, ''))} (suggested). It's the coloured dot on the map.`
+      : route.marker
       ? `Park on ${esc(String(route.marker.label).replace(/\s*\(part [\d.]+\)$/, ''))} (suggested, please use your own discretion). It's the coloured dot on the map.`
       : `${esc(route.startHint)}. Step 1 says where to walk to.`;
     const last = steps[steps.length - 1];
@@ -523,7 +531,7 @@ const PrintSheets = (() => {
     const cover = coverPageHtml(data, wardName, { directions: true });
     const withDir = data.routes.filter(r => r.directions && r.directions.legs.some(l => l.type === 'leg'));
     const pages = data.routes.map(r => (withDir.includes(r)
-      ? directionsRoutePagesHtml(r, colorsMap[r.id], appUrlBase, wardName)
+      ? directionsRoutePagesHtml(r, colorsMap[r.id], appUrlBase, wardName, !!data.general)
       // No directions for this route (couldn't be planned): classic page for it.
       : routePageHtml(r, colorsMap[r.id], appUrlBase, wardName, { targetMin: opts.targetMin ?? 150, targetMax: opts.targetMax ?? 450 }).replace('class="sheet route-sheet"', 'class="page classic route-sheet"') + '<section class="page blank"></section>')).join('\n');
     const specs = withDir.map(r => {
@@ -535,7 +543,7 @@ const PrintSheets = (() => {
         roads: r.roads.flatMap(rd => rd.geometry.filter(seg => seg.length >= 2).map(seg => seg.map(([lon, lat]) => [lat, lon]))),
       };
     });
-    const classicSpecs = data.routes.filter(r => !withDir.includes(r)).map(r => buildRouteMapSpec(r, colorsMap[r.id], data.start));
+    const classicSpecs = data.routes.filter(r => !withDir.includes(r)).map(r => buildRouteMapSpec(r, colorsMap[r.id], data.general ? null : data.start));
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>${esc(wardName)} Route Sheets</title>
@@ -634,7 +642,8 @@ ${classicSpecs.length ? mapInitScript(classicSpecs).replace("document.getElement
     const colorsMap = Colors.routeColors(data.routes.map(r => r.id));
     const cover = coverPageHtml(data, wardName);
     const pages = data.routes.map(r => routePageHtml(r, colorsMap[r.id], appUrlBase, wardName, { targetMin, targetMax })).join('\n');
-    const specs = data.routes.map(r => buildRouteMapSpec(r, colorsMap[r.id], data.start));
+    // General routes have no ward start point to mark on each map.
+    const specs = data.routes.map(r => buildRouteMapSpec(r, colorsMap[r.id], data.general ? null : data.start));
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>${esc(wardName)} Route Sheets</title>

@@ -530,7 +530,7 @@ const WalkOrder = (() => {
           const go = driveSparse ? 'drive' : 'walk', Go = driveSparse ? 'Drive' : 'Walk';
           const from = !st.first ? Go
             : start.kind === 'me' ? `From where you are, ${go}`
-            : start.kind !== 'parking' && startLabel ? `From ${startLabel}, ${go}` : Go;
+            : start.kind !== 'parking' && start.kind !== 'spot' && startLabel ? `From ${startLabel}, ${go}` : Go;
           // Name the roads walked along, leaving out the ones at the destination corner.
           const via = st.path ? st.path.streets.filter(n => !names.includes(n) && !/^Unknown Road/.test(n)).slice(0, 3) : [];
           const viaTxt = via.length ? ` via ${via.join(', ').replace(/, ([^,]*)$/, ' and $1')}` : '';

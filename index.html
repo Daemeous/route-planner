@@ -36,7 +36,7 @@
   .btn.green:hover{background:#076e2e}
   .btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
   .radio-group{display:flex;flex-direction:column;gap:8px}
-  .radio-opt{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border:2px solid #e2e2e0;border-radius:8px;cursor:pointer}
+  .radio-opt{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border:2px solid #e2e2e0;border-radius:8px;cursor:pointer;text-transform:none;letter-spacing:0}
   .radio-opt.active{border-color:#1a73e8;background:#f0f6ff}
   .radio-opt input{margin-top:3px}
   .radio-opt-label{font-size:13.5px;font-weight:600}
@@ -132,19 +132,30 @@
     <label>Ward</label>
     <select id="wardSelect"></select>
 
+    <label>Route type</label>
+    <div class="radio-group" id="routeTypeGroup">
+      <label class="radio-opt active"><input type="radio" name="routeType" value="event" checked>
+        <div><div class="radio-opt-label">Event day, from a start point</div><div class="radio-opt-desc">Everyone meets at a pub or other start point, and routes fan out from there. Sized by number of homes.</div></div>
+      </label>
+      <label class="radio-opt"><input type="radio" name="routeType" value="general">
+        <div><div class="radio-opt-label">General ward routes, no start point</div><div class="radio-opt-desc">For people going out on their own to cover the ward over time. Each route starts at its own suggested spot, and routes are sized by effort, so a rural lane route has far fewer homes than a town one. Lanes are driven, delivering both sides; streets are walked.</div></div>
+      </label>
+    </div>
+
     <div class="row">
       <div>
-        <label>Target residences per route</label>
+        <label id="targetSizeLabel">Target residences per route</label>
         <input type="number" id="targetSize" value="150" min="30" step="10">
-        <div class="hint">~90 minutes of leafleting at ~100 homes/hour, calibrated for a typical housing estate.
+        <div class="hint" id="eventSizeHint">~90 minutes of leafleting at ~100 homes/hour, calibrated for a typical housing estate.
           A route covering the same target will be a much smaller area in a dense town centre, and a much
           longer walk or drive on spread-out rural roads -- the target is a residence count, not a distance.
           <br><br>
           Residence counts come from UPRN records (unique property references), which tend to run a little
           high compared to how many doors you'll actually knock on -- treat every figure on this page as an
           estimate, not an exact count.</div>
+        <div class="hint" id="generalSizeHint" style="display:none">For general ward routes this is in <b>town-home equivalents</b>: a home on a sparse rural lane counts as about six town homes, so a 150 route is ~150 homes on an estate but only ~25&ndash;40 on the lanes.</div>
       </div>
-      <div>
+      <div id="wardScaleBox">
         <label>Ward size</label>
         <select id="wardScale">
           <option value="single">Compact -- one central start point</option>
@@ -159,12 +170,13 @@
         <div><label>Min residences/route</label><input type="number" id="targetMin" placeholder="auto"></div>
         <div><label>Max residences/route</label><input type="number" id="targetMax" placeholder="auto"></div>
       </div>
-      <div class="row">
+      <div class="row" id="radiusRow">
         <div><label>Walk radius (m)</label><input type="number" id="walkRadius" value="700"></div>
         <div><label>Hybrid radius (m)</label><input type="number" id="hybridRadius" value="1100"></div>
       </div>
     </div>
 
+    <div id="eventStartBox">
     <label>Event start point</label>
     <div class="radio-group" id="startPointGroup">
       <label class="radio-opt active"><input type="radio" name="startMode" value="auto" checked>
@@ -196,6 +208,7 @@
       <div class="banner" id="coordBanner"></div>
     </div>
     <div id="pubPickPanel" style="margin-top:10px"></div>
+    </div>
 
     <div class="btn-row"><button class="btn" id="buildBtn">Build routes</button></div>
     <div class="log" id="buildLog"></div>

@@ -52,7 +52,11 @@ const RouteDirections = (() => {
   }
 
   function startFor(route, payload) {
-    if (route.marker) return { latlng: [route.marker.point[1], route.marker.point[0]], label: route.marker.label, kind: 'parking' };
+    if (route.marker) {
+      // General street routes: the marker is where to begin, not somewhere to park.
+      const kind = payload.general && route.kind === 'walk' ? 'spot' : 'parking';
+      return { latlng: [route.marker.point[1], route.marker.point[0]], label: route.marker.label, kind };
+    }
     const hub = route.hub || payload.start;
     return { latlng: [hub.point[1], hub.point[0]], label: hub.label, kind: 'hub' };
   }

@@ -187,6 +187,25 @@ $('signInLoadBtn').onclick = async () => {
 // ── Step 2: ward + config ──
 $('advancedToggle').onclick = () => $('advancedBody').classList.toggle('show');
 
+// Route type: event day (from a start point) or general ward routes (no
+// start point -- see Pipeline.buildGeneral). General mode hides everything
+// about start points, pubs and ward size, and never looks pubs up.
+function routeType() { return document.querySelector('input[name=routeType]:checked').value; }
+document.querySelectorAll('input[name=routeType]').forEach(r => {
+  r.onchange = () => {
+    r.closest('.radio-group').querySelectorAll('.radio-opt').forEach(o => o.classList.remove('active'));
+    r.closest('.radio-opt').classList.add('active');
+    const general = routeType() === 'general';
+    $('eventStartBox').style.display = general ? 'none' : '';
+    $('wardScaleBox').style.display = general ? 'none' : '';
+    $('radiusRow').style.display = general ? 'none' : '';
+    $('generalSizeHint').style.display = general ? 'block' : 'none';
+    $('eventSizeHint').style.display = general ? 'none' : '';
+    $('targetSizeLabel').textContent = general ? 'Target effort per route (town-home equivalents)' : 'Target residences per route';
+    onWardOrStartModeChange();
+  };
+});
+
 document.querySelectorAll('input[name=startMode]').forEach(r => {
   r.onchange = () => {
     r.closest('.radio-group').querySelectorAll('.radio-opt').forEach(o => o.classList.remove('active'));
@@ -242,7 +261,7 @@ async function onWardOrStartModeChange() {
   const wardScale = $('wardScale').value;
   const startMode = document.querySelector('input[name=startMode]:checked').value;
   const panel = $('pubPickPanel');
-  if (!ward || wardScale === 'multi' || startMode !== 'auto') { panel.innerHTML = ''; return; }
+  if (!ward || routeType() === 'general' || wardScale === 'multi' || startMode !== 'auto') { panel.innerHTML = ''; return; }
 
   panel.innerHTML = '<div class="hint">Looking up nearby pubs…</div>';
   try {
@@ -307,7 +326,12 @@ $('buildBtn').onclick = async () => {
     const opts = currentClusterOpts();
 
     let payload;
-    if (wardScale === 'multi') {
+    if (routeType() === 'general') {
+      logLine(log, `Building general routes for ${ward} (no start point, sized by effort)…`);
+      payload = await Pipeline.buildGeneral(state.rows, ward, { clusterOpts: opts });
+      const lanes = payload.routes.filter(r => r.kind === 'drive').length;
+      logLine(log, `Done: ${payload.routes.length} routes (${payload.routes.length - lanes} walked, ${lanes} driven along lanes).`);
+    } else if (wardScale === 'multi') {
       logLine(log, `Building ${ward} as multiple local areas…`);
       const wardRows = state.rows.filter(r => r.wardName === ward);
       const roadsForBbox = Graph.loadRoads(wardRows, { ward });
