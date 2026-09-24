@@ -7,6 +7,8 @@
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="js/colors.js"></script>
 <script src="js/walkOrder.js"></script>
+<script src="js/csv.js"></script>
+<script src="js/sheets.js"></script>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; }
@@ -18,6 +20,8 @@
   .topbar h1 span { font-weight: 400; color: #9aa3ad; }
   .topbar select { font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 6px; border: 1px solid #3a3f46; background: #23272d; color: #fff; max-width: 100%; }
   .topbar .spacer { flex: 1; }
+  .net-status { font-size: 11.5px; color: #9aa3ad; }
+  .net-status b { color: #fff; font-weight: 600; }
   .tabs { display: flex; background: #23272d; border-radius: 8px; padding: 3px; }
   .tabs button { font: inherit; font-size: 13px; font-weight: 600; border: 0; background: none; color: #9aa3ad; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
   .tabs button.on { background: #1a73e8; color: #fff; }
@@ -140,6 +144,7 @@
     <option value="me">Start: my location</option>
     <option value="event">Start: event start (pub)</option>
   </select>
+  <span class="net-status" id="netStatus">Walking network: loading live Stafford sheet…</span>
   <div class="spacer"></div>
   <div class="tabs" role="tablist">
     <button data-view="app" class="on">In the app</button>
@@ -174,7 +179,7 @@
         </ul>
         <h3>Known gaps in this prototype</h3>
         <ul>
-          <li>Walks to a route, and between separate parts of one, follow the roads in the ward's data. Roads that aren't in it (a main road with no homes left, a footpath) can't be used. Gaps under 120 m are bridged with a straight link, and anything else falls back to a straight line.</li>
+          <li>Walks to a route, and between separate parts of one, follow real roads: the page loads the <b>live Stafford sheet</b> for its walking network, including the no-homes roads listed below the <code>###ROUTE_PLANNER_ONLY_BELOW###</code> marker. Any remaining gap under 120 m is bridged with a straight link; bigger ones fall back to a straight line.</li>
           <li>We don't know which sides actually have houses or pavements, so homes are split 50/50 between the two sides.</li>
           <li>The data is a frozen copy of the published Penkside, Littleworth and Baswich apps.</li>
         </ul>
@@ -212,7 +217,61 @@ const state = { ward: null, route: null, view: 'app', startMode: 'route', me: nu
 let appMap = null, printMaps = [];
 // Walking network per ward (every road in the ward's data), built on first use.
 const NETS = {};
-const netFor = wk => NETS[wk] || (NETS[wk] = WalkOrder.buildNetwork(WARDS[wk].roads));
+const netFor = wk => NETS[wk] || (NETS[wk] = WalkOrder.buildNetwork(WARDS[wk].roads.concat(liveRoadsNear(wk))));
+
+// The live Stafford sheet: every road in it is walkable (including ones
+// already marked Complete), plus the no-homes roads below its
+// ###ROUTE_PLANNER_ONLY_BELOW### marker that exist purely for this. Fetched
+// on load; if it can't be reached, the network falls back to the frozen
+// route roads above.
+const LIVE_CSV = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT4ubRH-LuAh0_qU3PUuV7qxjeTy1I5u9HuB7vD2NgiAb8b6JFeOUN4s5G1J6tiKojLz-1nVT7zCh5q/pub?gid=2107159853&single=true&output=csv';
+let LIVE = null;
+
+function parseSegments(geom) {
+  try {
+    return String(geom).split('|').map(part => part.match(/LINESTRING\((.*)\)/)[1].split(',').map(pair => {
+      const [lon, lat] = pair.trim().split(' ').map(Number);
+      return [lat, lon];
+    })).filter(seg => seg.length >= 2 && seg.every(p => isFinite(p[0]) && isFinite(p[1])));
+  } catch (e) { return []; }
+}
+
+// Live roads within ~1.5 km of a ward's routes (walk-ins can start outside the ward).
+function liveRoadsNear(wk) {
+  if (!LIVE) return [];
+  const pts = WARDS[wk].roads.flatMap(r => r.segments.flat());
+  const lats = pts.map(p => p[0]), lons = pts.map(p => p[1]);
+  const pad = 0.015;
+  const box = [Math.min(...lats) - pad, Math.max(...lats) + pad, Math.min(...lons) - pad * 1.6, Math.max(...lons) + pad * 1.6];
+  return LIVE.roads.filter(r => r.segments.some(seg => seg.some(([la, lo]) => la > box[0] && la < box[1] && lo > box[2] && lo < box[3])));
+}
+
+function showNetStatus() {
+  const el = document.getElementById('netStatus');
+  if (!LIVE) return;
+  if (LIVE.error) { el.textContent = 'Walking network: route roads only (live sheet unavailable)'; return; }
+  const near = liveRoadsNear(state.ward);
+  const netOnly = near.filter(r => r.networkOnly).length;
+  el.innerHTML = `Walking network: <b>live sheet</b>, ${near.length} roads near ${esc(WARDS[state.ward].ward)} (${netOnly} network-only)`;
+}
+
+async function loadLiveNetwork() {
+  try {
+    const res = await fetch(LIVE_CSV, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const sheet = Sheets.fromCsvText(await res.text());
+    const toRoad = networkOnly => r => ({ street: r.street, res: 0, segments: parseSegments(r.roadGeometry), networkOnly });
+    LIVE = {
+      roads: sheet.rows.map(toRoad(false)).concat(sheet.networkRows.map(toRoad(true))).filter(r => r.segments.length),
+    };
+  } catch (e) {
+    console.warn('Live sheet unavailable, using route roads only:', e);
+    LIVE = { roads: [], error: String(e) };
+  }
+  for (const k of Object.keys(NETS)) delete NETS[k];
+  resetRouteState();
+  render();
+}
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const legColor = n => LEG_COLORS[(n - 1) % LEG_COLORS.length];
@@ -788,6 +847,7 @@ function render() {
   document.getElementById('printView').hidden = state.view !== 'print';
   document.getElementById('printBtn').hidden = state.view !== 'print';
   writeHash();
+  showNetStatus();
   if (state.view === 'app') showApp(ctx); else showPrint(ctx);
 }
 
@@ -809,5 +869,6 @@ document.getElementById('startSel').addEventListener('change', e => { state.star
 document.getElementById('routeSel').addEventListener('change', e => { state.route = e.target.value; resetRouteState(); render(); });
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => { state.view = b.dataset.view; render(); }));
 render();
+loadLiveNetwork();
 </script>
 </body></html>

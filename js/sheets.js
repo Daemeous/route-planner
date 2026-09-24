@@ -25,6 +25,17 @@ const Sheets = (() => {
 
   function normKey(s) { return s.toLowerCase().replace(/[^a-z0-9]/g, ''); }
 
+  // Rows below a "###ROUTE_PLANNER_ONLY_BELOW###" marker row are roads with
+  // no homes (main roads, footpaths, bridges...) kept in the sheet purely so
+  // walking directions can route along them. They're never route candidates:
+  // the loaders return them separately as `networkRows`, and `rows` stays
+  // exactly what it was before the marker existed.
+  const NETWORK_MARKER = /^#+\s*ROUTE_PLANNER_ONLY_BELOW\s*#+$/i;
+  function isNetworkMarker(rawRow, columnMap) {
+    const cells = [rawRow[columnMap.street], ...Object.values(rawRow)];
+    return cells.some(c => typeof c === 'string' && NETWORK_MARKER.test(c.trim()));
+  }
+
   // Fields that are genuinely optional -- their absence is never reported
   // via `missing` (which the UI treats as fatal-ish). Constituency is a
   // nice-to-have for auto-naming a published page, not required to build
@@ -54,6 +65,7 @@ const Sheets = (() => {
   // that exact row later from the live app.
   function normaliseRows(rawRows, columnMap) {
     return rawRows.map((r, i) => {
+      if (isNetworkMarker(r, columnMap)) return { marker: true, rowIndex: i + 2 };
       const resRaw = r[columnMap.residences];
       const residences = resRaw === '-' || resRaw === '' || resRaw == null ? 0 : parseInt(resRaw, 10) || 0;
       return {
@@ -71,15 +83,21 @@ const Sheets = (() => {
     });
   }
 
+  function splitAtMarker(all) {
+    const at = all.findIndex(r => r.marker);
+    if (at === -1) return { rows: all, networkRows: [] };
+    return { rows: all.slice(0, at), networkRows: all.slice(at + 1).filter(r => !r.marker && r.street) };
+  }
+
   function fromCsvText(csvText) {
     const rawRows = parseCsv(csvText);
-    if (!rawRows.length) return { rows: [], wards: [], columnMap: null, missing: ['(empty sheet)'] };
+    if (!rawRows.length) return { rows: [], networkRows: [], wards: [], columnMap: null, missing: ['(empty sheet)'] };
     const headerRow = Object.keys(rawRows[0]);
     const columnMap = detectColumns(headerRow);
     const missing = Object.entries(columnMap).filter(([k, v]) => v === null && !OPTIONAL_FIELDS.has(k)).map(([k]) => k);
-    const rows = normaliseRows(rawRows, columnMap);
+    const { rows, networkRows } = splitAtMarker(normaliseRows(rawRows, columnMap));
     const wards = [...new Set(rows.map(r => r.wardName))].filter(Boolean);
-    return { rows, wards, columnMap, missing, headerRow };
+    return { rows, networkRows, wards, columnMap, missing, headerRow };
   }
 
   function pubCsvUrl(sheetId, gid) {
@@ -89,7 +107,7 @@ const Sheets = (() => {
   // valuesGrid: array of arrays (row 0 = headers) as returned by the Sheets
   // API's values.get -- used by the "sign in and read any sheet" fallback.
   function fromValuesGrid(valuesGrid) {
-    if (!valuesGrid || !valuesGrid.length) return { rows: [], wards: [], columnMap: null, missing: ['(empty sheet)'] };
+    if (!valuesGrid || !valuesGrid.length) return { rows: [], networkRows: [], wards: [], columnMap: null, missing: ['(empty sheet)'] };
     const headerRow = valuesGrid[0];
     const rawRows = valuesGrid.slice(1).map(r => {
       const obj = {};
@@ -98,12 +116,12 @@ const Sheets = (() => {
     });
     const columnMap = detectColumns(headerRow);
     const missing = Object.entries(columnMap).filter(([k, v]) => v === null && !OPTIONAL_FIELDS.has(k)).map(([k]) => k);
-    const rows = normaliseRows(rawRows, columnMap);
+    const { rows, networkRows } = splitAtMarker(normaliseRows(rawRows, columnMap));
     const wards = [...new Set(rows.map(r => r.wardName))].filter(Boolean);
-    return { rows, wards, columnMap, missing, headerRow };
+    return { rows, networkRows, wards, columnMap, missing, headerRow };
   }
 
-  return { detectColumns, normaliseRows, fromCsvText, fromValuesGrid, pubCsvUrl, SYNONYMS };
+  return { detectColumns, normaliseRows, splitAtMarker, fromCsvText, fromValuesGrid, pubCsvUrl, SYNONYMS, NETWORK_MARKER };
 })();
 
 if (typeof module !== 'undefined') module.exports = Sheets;

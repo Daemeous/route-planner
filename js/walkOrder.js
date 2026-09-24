@@ -88,6 +88,48 @@ const WalkOrder = (() => {
     return best;
   }
 
+  // Uniform grid over metric coordinates, so "what's near this point" looks
+  // at a few cells instead of every road -- a whole ward's network has
+  // hundreds of roads, and all-pairs checks took seconds.
+  function makeGrid(cell) {
+    const m = new Map();
+    const key = (i, j) => i + ',' + j;
+    return {
+      addBox(x0, y0, x1, y1, v) {
+        for (let i = Math.floor(x0 / cell); i <= Math.floor(x1 / cell); i++) {
+          for (let j = Math.floor(y0 / cell); j <= Math.floor(y1 / cell); j++) {
+            const k = key(i, j);
+            if (!m.has(k)) m.set(k, []);
+            m.get(k).push(v);
+          }
+        }
+      },
+      near(x, y, r) {
+        const out = new Set();
+        for (let i = Math.floor((x - r) / cell); i <= Math.floor((x + r) / cell); i++) {
+          for (let j = Math.floor((y - r) / cell); j <= Math.floor((y + r) / cell); j++) {
+            const b = m.get(key(i, j));
+            if (b) for (const v of b) out.add(v);
+          }
+        }
+        return out;
+      },
+    };
+  }
+  // Index each segment of each polyline (not the whole line's box: a long
+  // rural lane's box would cover thousands of cells).
+  function indexPolylines(items, ptsOf, cell) {
+    const grid = makeGrid(cell);
+    items.forEach((it, idx) => {
+      const pts = ptsOf(it);
+      for (let k = 1; k < pts.length; k++) {
+        const a = pts[k - 1], b = pts[k];
+        grid.addBox(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1]), idx);
+      }
+    });
+    return grid;
+  }
+
   function compass8(deg) { return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(((deg % 360) + 360) % 360 / 45) % 8]; }
   const SIDE_WORD = { N: 'north', NE: 'north-east', E: 'east', SE: 'south-east', S: 'south', SW: 'south-west', W: 'west', NW: 'north-west' };
 
@@ -130,12 +172,14 @@ const WalkOrder = (() => {
     }
 
     // T-junctions: a line's end sitting on (or just short of) another line.
+    const lineGrid = indexPolylines(lines, l => l.pts, 50);
     lines.forEach((l, li) => {
       [0, 1].forEach(which => {
         const p = which ? l.pts[l.pts.length - 1] : l.pts[0];
         let best = null;
-        lines.forEach((m, mi) => {
+        lineGrid.near(p[0], p[1], T_SNAP_M).forEach(mi => {
           if (mi === li) return;
+          const m = lines[mi];
           const hit = nearestOn(m.pts, m.cum, p);
           if (hit.d <= T_SNAP_M && (!best || hit.d < best.d)) best = { ...hit, mi };
         });
@@ -148,9 +192,11 @@ const WalkOrder = (() => {
     const find = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
     const union = (a, b) => { a = find(a); b = find(b); if (a !== b) parent[b] = a; };
     joins.forEach(([a, b]) => union(a, b));
-    for (let i = 0; i < cand.length; i++) for (let j = i + 1; j < cand.length; j++) {
-      if (dist(cand[i].p, cand[j].p) <= NODE_SNAP_M) union(i, j);
-    }
+    const candGrid = makeGrid(NODE_SNAP_M);
+    cand.forEach((c, i) => candGrid.addBox(c.p[0], c.p[1], c.p[0], c.p[1], i));
+    cand.forEach((c, i) => candGrid.near(c.p[0], c.p[1], NODE_SNAP_M).forEach(j => {
+      if (j > i && dist(c.p, cand[j].p) <= NODE_SNAP_M) union(i, j);
+    }));
     const nodeOf = new Map(), nodes = [];
     cand.forEach((c, i) => {
       const r = find(i);
@@ -562,10 +608,12 @@ const WalkOrder = (() => {
         nc++;
       });
       const bestPair = new Map();
+      const nodeGrid = makeGrid(GAP_LINK_M);
+      g.nodes.forEach((nd, v) => { if (comp[v] !== -1) nodeGrid.addBox(nd.p[0], nd.p[1], nd.p[0], nd.p[1], v); });
       for (let v = 0; v < g.nodes.length; v++) {
         if (comp[v] === -1) continue;
-        for (let w = v + 1; w < g.nodes.length; w++) {
-          if (comp[w] === -1 || comp[w] === comp[v]) continue;
+        for (const w of nodeGrid.near(g.nodes[v].p[0], g.nodes[v].p[1], GAP_LINK_M)) {
+          if (w <= v || comp[w] === comp[v]) continue;
           const d = dist(g.nodes[v].p, g.nodes[w].p);
           if (d > GAP_LINK_M) continue;
           const key = Math.min(comp[v], comp[w]) + ',' + Math.max(comp[v], comp[w]);
@@ -580,13 +628,25 @@ const WalkOrder = (() => {
     const adj = g.nodes.map(() => []);
     g.edges.forEach((e, i) => { adj[e.a].push(i); adj[e.b].push(i); });
 
+    const edgeGrid = indexPolylines(g.edges, e => e.pts, 50);
     function locate(ll) {
       const p = proj.toXY(ll);
-      let best = null;
-      g.edges.forEach((e, i) => {
-        const hit = nearestOn(e.pts, e.cum, p);
-        if (!best || hit.d < best.d) best = { e: i, s: hit.s, d: hit.d, pt: hit.pt };
-      });
+      const nearestAmong = ids => {
+        let best = null;
+        for (const i of ids) {
+          const e = g.edges[i], hit = nearestOn(e.pts, e.cum, p);
+          // Ties (a point exactly on a junction) go to the lowest edge index, so
+          // the answer doesn't depend on the order the grid returns edges in.
+          if (!best || hit.d < best.d || (hit.d === best.d && i < best.e)) best = { e: i, s: hit.s, d: hit.d, pt: hit.pt };
+        }
+        return best;
+      };
+      // Search outward; a hit within the searched radius is certainly the nearest.
+      for (const r of [50, 250, 1000]) {
+        const best = nearestAmong(edgeGrid.near(p[0], p[1], r));
+        if (best && best.d <= r) return { ...best, p };
+      }
+      const best = nearestAmong(g.edges.keys());
       return best && { ...best, p };
     }
 
