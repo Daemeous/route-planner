@@ -26,6 +26,13 @@
 // walks every pavement once, so nothing else changes. opts.keepRoadOn =
 // 'right' gives the un-reversed tour.
 //
+// Rural driving routes (opts.driveSparse): a road with fewer than
+// SPARSE_PER_KM homes per km is driven along once delivering BOTH sides,
+// and the second time along it (the way back) is just "head back, already
+// done" -- the two-pavement walk makes no sense on a lane from a car.
+// Denser roads on the same route (a village estate) still get the
+// pavement-by-pavement walk.
+//
 // Input roads are the app payload shape: {street, res, segments:[[[lat,lon],...]]}.
 'use strict';
 
@@ -35,8 +42,9 @@ const WalkOrder = (() => {
   const SHARED_VERTEX_M = 1.5;
   const BEARING_PROBE_M = 15;
   const MIN_EDGE_M = 3;
+  const SPARSE_PER_KM = 30;  // drive routes: below this, deliver both sides in one pass
 
-  function baseName(n) { return String(n).replace(/\s*\(part \d+\)$/, ''); }
+  function baseName(n) { return String(n).replace(/\s*\(part [\d.]+\)$/, ''); }
 
   function makeProjector(lat0, lon0) {
     const kx = 111320 * Math.cos(lat0 * Math.PI / 180), ky = 110540;
@@ -174,7 +182,7 @@ const WalkOrder = (() => {
     // T-junctions: a line's end sitting on (or just short of) another line.
     const lineGrid = indexPolylines(lines, l => l.pts, 50);
     lines.forEach((l, li) => {
-      [0, 1].forEach(which => {
+      const hits = [0, 1].map(which => {
         const p = which ? l.pts[l.pts.length - 1] : l.pts[0];
         let best = null;
         lineGrid.near(p[0], p[1], T_SNAP_M).forEach(mi => {
@@ -183,6 +191,16 @@ const WalkOrder = (() => {
           const hit = nearestOn(m.pts, m.cum, p);
           if (hit.d <= T_SNAP_M && (!best || hit.d < best.d)) best = { ...hit, mi };
         });
+        return best;
+      });
+      // A short stub with BOTH ends near the same spot on another road (e.g.
+      // a 30 m lane off the end of a close) would be pinned to one point at
+      // both ends and vanish as a zero-length loop, homes and all. Only its
+      // nearer end joins.
+      if (hits[0] && hits[1] && hits[0].mi === hits[1].mi && Math.abs(hits[0].s - hits[1].s) < 2 * NODE_SNAP_M) {
+        hits[hits[0].d <= hits[1].d ? 1 : 0] = null;
+      }
+      hits.forEach((best, which) => {
         if (best) joins.push([ends[li][which], addSplit(best.mi, best.s, best.pt)]);
       });
     });
@@ -238,8 +256,26 @@ const WalkOrder = (() => {
     // survived (so dropped snapping slivers don't lose any homes).
     const keptLen = roads.map(() => 0);
     for (const e of edges) keptLen[e.road] += e.len;
-    for (const e of edges) e.res = roads[e.road].res * e.len / keptLen[e.road];
-    const lost = roads.filter((rd, ri) => rd.res > 0 && !keptLen[ri]).map(rd => rd.street);
+    for (const e of edges) {
+      e.res = roads[e.road].res * e.len / keptLen[e.road];
+      e.perKm = keptLen[e.road] ? roads[e.road].res / keptLen[e.road] * 1000 : 0;
+    }
+    // A road with homes but next to no geometry left (a sliver after most of
+    // it was marked done, or odd data) would lose its homes. Hand them to the
+    // nearest road segment on the route instead, and name it in that step.
+    const lost = [];
+    roads.forEach((rd, ri) => {
+      if (rd.res <= 0 || keptLen[ri] || !edges.length) return;
+      const pts = rd.segments.flat().map(proj.toXY);
+      if (!pts.length) { lost.push(rd.street); return; }
+      let best = null;
+      edges.forEach(e => {
+        const hit = nearestOn(e.pts, cumulative(e.pts), pts[0]);
+        if (!best || hit.d < best.d) best = { e, d: hit.d };
+      });
+      best.e.res += rd.res;
+      (best.e.includes = best.e.includes || []).push(baseName(rd.street));
+    });
     return { nodes, edges, lost };
   }
 
@@ -474,6 +510,11 @@ const WalkOrder = (() => {
 
     const nodeRoads = v => [...new Set(T.rot[v].map(h => g.edges[h >> 1].street))];
     const closeLeg = () => { if (cur) { legs.push(cur); last = cur; cur = null; } };
+    const driveSparse = !!ctx.opts.driveSparse;
+    const sparse = e => driveSparse && e.perKm < SPARSE_PER_KM;
+    const sparseStreet = new Map();
+    for (const e of g.edges) sparseStreet.set(e.street, (sparseStreet.get(e.street) ?? true) && sparse(e));
+    const deliveredEdges = new Set();
     const turnWord = t => (Math.abs(t) < 35 ? 'straight' : Math.abs(t) > 150 ? 'round' : t < 0 ? 'left' : 'right');
 
     for (const st of steps) {
@@ -482,11 +523,14 @@ const WalkOrder = (() => {
         last = null;
         const names = nodeRoads(st.toNode);
         const where = names.length > 1 ? `the corner of ${names.slice(0, 2).join(' and ')}` : names[0];
-        const lead = st.first && start.kind === 'parking' && start.label ? `Park on ${start.label}. ` : '';
+        const startLabel = start.label ? baseName(start.label) : null;
+        const lead = st.first && start.kind === 'parking' && startLabel ? `Park on ${startLabel}. ` : '';
         if (st.d > 25) {
-          const from = !st.first ? 'Walk'
-            : start.kind === 'me' ? 'From where you are, walk'
-            : start.kind !== 'parking' && start.label ? `From ${start.label}, walk` : 'Walk';
+          // On a drive route, getting between separate lanes is a drive, not a walk.
+          const go = driveSparse ? 'drive' : 'walk', Go = driveSparse ? 'Drive' : 'Walk';
+          const from = !st.first ? Go
+            : start.kind === 'me' ? `From where you are, ${go}`
+            : start.kind !== 'parking' && startLabel ? `From ${startLabel}, ${go}` : Go;
           // Name the roads walked along, leaving out the ones at the destination corner.
           const via = st.path ? st.path.streets.filter(n => !names.includes(n) && !/^Unknown Road/.test(n)).slice(0, 3) : [];
           const viaTxt = via.length ? ` via ${via.join(', ').replace(/, ([^,]*)$/, ' and $1')}` : '';
@@ -498,6 +542,8 @@ const WalkOrder = (() => {
         continue;
       }
       if (st.type === 'cross') {
+        // Crossing only lanes you're driving along means nothing from a car.
+        if (st.roads.every(r => sparseStreet.get(r))) continue;
         closeLeg();
         crossings++;
         pending.push(`${st.back ? 'Cross back over' : 'Cross over'} ${st.roads.join(' / ')}.`);
@@ -505,22 +551,34 @@ const WalkOrder = (() => {
       }
       const e = g.edges[st.h >> 1];
       const pts = T.ptsOf(st.h);
+      // 'side': one pavement; 'both': driving along delivering both sides;
+      // 'back': driving back along a lane that's already done.
+      const pass = !sparse(e) ? 'side' : deliveredEdges.has(st.h >> 1) ? 'back' : 'both';
+      deliveredEdges.add(st.h >> 1);
       const turnHere = cur ? angDiff(cur.endBearing, T.outBearing(st.h)) : 0;
       // Same-named road forking at a junction: still a new leg, or the
       // volunteer can't tell which arm to take.
       const fork = cur && cur.street === e.street && T.rot[T.tail(st.h)].length >= 3 && Math.abs(turnHere) >= 50;
-      if (!cur || cur.street !== e.street || st.uturn || fork) {
+      // Consecutive "heading back" stretches merge into one step, even
+      // across different lanes: there's nothing to do on any of them.
+      const continuesBack = cur && cur.pass === 'back' && pass === 'back' && !pending.length;
+      if (!continuesBack && (!cur || cur.street !== e.street || st.uturn || fork || cur.pass !== pass)) {
         const prev = cur;
         closeLeg();
         let turn = null;
-        if (st.uturn && prev) { turn = { kind: 'uturn', from: prev.street }; crossings++; }
+        if (st.uturn && prev) { turn = { kind: 'uturn', from: prev.street }; if (pass === 'side') crossings++; }
         else if (prev) turn = { kind: turnWord(turnHere), fork, from: prev.street };
-        cur = { type: 'leg', street: e.street, pre: pending, turn, xy: [...pts], homes: 0, len: 0, sideVec: [0, 0], pavement: st.pavementOnRight ? 'right' : 'left' };
+        cur = {
+          type: 'leg', street: e.street, streets: [e.street], pre: pending, turn, xy: [...pts], homes: 0, len: 0, sideVec: [0, 0], pass,
+          pavement: pass === 'side' ? (st.pavementOnRight ? 'right' : 'left') : pass,
+        };
         pending = [];
       } else {
         cur.xy.push(...pts.slice(1));
+        if (!cur.streets.includes(e.street)) cur.streets.push(e.street);
       }
-      cur.homes += e.res / 2;
+      cur.homes += pass === 'side' ? e.res / 2 : pass === 'both' ? e.res : 0;
+      if (e.includes && pass !== 'back') for (const x of e.includes) if (x !== cur.street && !(cur.includes = cur.includes || []).includes(x)) cur.includes.push(x);
       cur.len += e.len;
       // Which side of the road the pavement is on: sum the normals on that side of travel (length-weighted).
       const sgn = st.pavementOnRight ? -1 : 1;
@@ -538,9 +596,20 @@ const WalkOrder = (() => {
       if (l.type === 'transfer') return { type: 'transfer', latlngs: l.latlngs, len: l.d, routed: l.routed };
       const a = l.xy[0], b = l.xy[l.xy.length - 1];
       const dir = dist(a, b) > Math.max(20, l.len * 0.25) ? compass8(bearing(a, b)) : null;
-      const along = dir ? `walk ${SIDE_WORD[dir]} along ${l.street}` : `walk round ${l.street}`;
+      const verb = l.pass === 'side' ? 'walk' : 'drive';
+      const along = dir ? `${verb} ${SIDE_WORD[dir]} along ${l.street}` : `${verb} round ${l.street}`;
       let action;
       const t = l.turn;
+      if (l.pass === 'back') {
+        const via = l.streets.length > 1 ? `${l.streets[0]}, then ${l.streets.slice(1).join(', ').replace(/, ([^,]*)$/, ' and $1')}` : l.street;
+        action = t && t.kind === 'uturn'
+          ? `At the end of ${t.from}, turn round and head back along ${via}. Both sides are already done.`
+          : `Head back along ${via} (already done).`;
+        return {
+          type: 'leg', n: ++n, street: l.street, cue: [...l.pre, action].join(' '),
+          homes: 0, len: l.len, side: 'already done', dir, pavement: 'back', latlngs: l.xy.map(proj.toLL),
+        };
+      }
       if (!t) action = `${along[0].toUpperCase()}${along.slice(1)}.`;
       else if (t.kind === 'uturn') action = `At the end of ${t.from}, cross over and come back down the other side.`;
       else if (t.fork) action = t.kind === 'straight' ? `Carry straight on, staying on ${l.street}.` : `Turn ${t.kind} to stay on ${l.street} (it branches here).`;
@@ -548,10 +617,12 @@ const WalkOrder = (() => {
       else if (t.kind === 'round') action = `Turn round into ${l.street}.`;
       else action = `Turn ${t.kind} into ${l.street}.`;
       if (!t && l.pre.length) action = `Then ${along}.`;
+      if (l.pass === 'both') action += ' Deliver both sides as you go.';
+      if (l.includes && l.includes.length) action += ` Includes ${l.includes.join(' and ')} (a very short road here).`;
       return {
         type: 'leg', n: ++n, street: l.street, cue: [...l.pre, action].join(' '),
         homes: l.homes, len: l.len,
-        side: SIDE_WORD[compass8(bearing([0, 0], l.sideVec))] + ' side',
+        side: l.pass === 'both' ? 'both sides' : SIDE_WORD[compass8(bearing([0, 0], l.sideVec))] + ' side',
         dir, pavement: l.pavement, latlngs: l.xy.map(proj.toLL),
       };
     });

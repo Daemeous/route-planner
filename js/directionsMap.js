@@ -37,7 +37,7 @@ function directionsMapFactory() {
       return map.layerPointToLatLng([p.x + nx * px * miter, p.y + ny * px * miter]);
     });
   }
-  const pavementOffset = (leg, px) => px * (leg.pavement === 'right' ? -1 : 1);
+  const pavementOffset = (leg, px) => (leg.pavement === 'right' ? -px : leg.pavement === 'left' ? px : 0);
 
   function screenLength(map, latlngs) {
     let s = 0;
@@ -91,7 +91,11 @@ function directionsMapFactory() {
       const isSel = l.n === sel, faded = sel != null && !isSel;
       const line = offsetLatLngs(map, l.latlngs, pavementOffset(l, offsetPx));
       lines.set(l.n, line);
-      const pl = L.polyline(line, { color: colour(l), weight: isSel ? 6 : 4, opacity: faded ? 0.35 : 0.95, lineCap: 'round', lineJoin: 'round', bubblingMouseEvents: false }).addTo(layer);
+      const back = l.pavement === 'back';
+      const pl = L.polyline(line, {
+        color: back ? '#6b7178' : colour(l), weight: isSel ? 6 : back ? 3 : l.pavement === 'both' ? 6 : 4,
+        opacity: faded ? 0.35 : back ? 0.7 : 0.95, dashArray: back ? '6 6' : null, lineCap: 'round', lineJoin: 'round', bubblingMouseEvents: false,
+      }).addTo(layer);
       if (onPick) pl.on('click', () => onPick(l.n));
       if (!arrows) continue;
       const len = screenLength(map, line);

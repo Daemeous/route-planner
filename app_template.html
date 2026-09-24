@@ -575,14 +575,17 @@ function directionsHtml(routeId) {
   const d = DATA.routesMeta[routeId].directions;
   const steps = d.legs.filter(l => l.type === 'leg');
   const done = doneSteps(routeId);
-  let html = '<div class="dir-rule">Keep the <b>road on your left</b>, so traffic comes towards you. The letterboxes you\'re doing are on your <b>right</b>. Only cross where a step tells you to.</div>';
-  html += '<div class="dir-head"><span>Directions</span><span>' + done.size + ' of ' + steps.length + ' steps · ' + metresText(d.stats.walkM) + ' walk</span></div>';
+  const lanes = steps.some(l => l.pavement === 'both');
+  let html = '<div class="dir-rule">' + (lanes
+    ? '<b>Lanes:</b> drive along delivering <b>both sides</b>, then head back. <b>Streets:</b> park and walk, keeping the road on your left so traffic comes towards you, with the letterboxes on your right.'
+    : 'Keep the <b>road on your left</b>, so traffic comes towards you. The letterboxes you\'re doing are on your <b>right</b>. Only cross where a step tells you to.') + '</div>';
+  html += '<div class="dir-head"><span>Directions</span><span>' + done.size + ' of ' + steps.length + ' steps · ' + metresText(d.stats.walkM) + (lanes ? ' in all' : ' walk') + '</span></div>';
   html += '<ol class="dir-list" id="dirList">';
   steps.forEach(l => {
     const isDone = done.has(l.n);
     html += '<li class="dir-step' + (l.n === dirSel ? ' sel' : '') + (isDone ? ' done' : '') + '" data-n="' + l.n + '" onclick="selectDirStep(' + l.n + ', true)">' +
       '<div class="dir-num" style="background:' + (isDone ? '#9aa0a6' : DirectionsMap.legColor(l.n)) + '">' + l.n + '</div>' +
-      '<div><div class="dir-street">' + escText(l.street) + ' <span class="dir-side">· ' + escText(l.side) + (l.dir ? ' · walk ' + l.dir : '') + '</span></div>' +
+      '<div><div class="dir-street">' + escText(l.street) + ' <span class="dir-side">· ' + escText(l.side) + (l.dir ? ' · ' + (l.pavement === 'both' || l.pavement === 'back' ? 'drive ' : 'walk ') + l.dir : '') + '</span></div>' +
       '<div class="dir-cue">' + escText(l.cue) + '</div>' +
       '<div class="dir-meta">' + (l.homes < 0.5 ? 'nothing to deliver' : '~' + Math.round(l.homes) + ' homes') + ' · ' + metresText(l.len) + '</div></div>' +
       '<button class="dir-tick" aria-label="Step ' + l.n + ' done" onclick="event.stopPropagation(); toggleDirStep(' + l.n + ')">✓</button></li>';

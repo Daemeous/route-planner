@@ -91,7 +91,7 @@ function progressMatchFactory() {
       // and close to where the time since the last look says you should be.
       // Ties lean to the EARLIER step: under-ticking just leaves a step to
       // tick by hand, over-ticking would mark houses done that weren't.
-      const expectSide = pc.pavement === 'right' ? -PAVEMENT_M : PAVEMENT_M;
+      const expectSide = pc.pavement === 'right' ? -PAVEMENT_M : pc.pavement === 'left' ? PAVEMENT_M : 0;
       const score = (hit.d / near) ** 2
         + ((hit.side - expectSide) / (accuracy + 6)) ** 2
         + ((pos - expected) / spread) ** 2

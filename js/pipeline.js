@@ -64,6 +64,7 @@ const Pipeline = (() => {
     let roads = Graph.loadRoads(rows, { ward: wardName });
     const originalGeometry = captureOriginalGeometry(roads);
     roads = Graph.splitLongRoads(roads);
+    if (clusterOpts.sizeBy === 'effort') roads = Cluster.splitByEffort(roads, clusterOpts.targetSoft ?? 150);
     const adjacency = Graph.buildAdjacency(roads);
     const eventStart = [pubLon, pubLat];
     const clusters = Cluster.clusterRoads(roads, adjacency, eventStart, clusterOpts);
@@ -96,6 +97,7 @@ const Pipeline = (() => {
       let settlementRoads = {};
       for (const n of group) settlementRoads[n] = roadsAll[n];
       settlementRoads = Graph.splitLongRoads(settlementRoads);
+      if (clusterOpts.sizeBy === 'effort') settlementRoads = Cluster.splitByEffort(settlementRoads, clusterOpts.targetSoft ?? 150);
       const settlementAdjacency = Graph.buildAdjacency(settlementRoads);
       Object.assign(mergedRoads, settlementRoads);
 

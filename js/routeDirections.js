@@ -83,7 +83,7 @@ const RouteDirections = (() => {
       try {
         const roads = route.roads.map(rd => ({ street: rd.name, res: rd.residences, segments: toLatLngSegments(rd.geometry) }))
           .filter(rd => rd.segments.length);
-        const plan = WalkOrder.plan({ roads }, { start: startFor(route, payload), network });
+        const plan = WalkOrder.plan({ roads }, { start: startFor(route, payload), network, driveSparse: route.kind === 'drive' });
         route.directions = compact(plan);
         planned++;
       } catch (e) {

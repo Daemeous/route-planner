@@ -308,7 +308,7 @@ const PrintSheets = (() => {
   // count is decided by what actually fits, not guessed.
 
   function stepItemHtml(l) {
-    const sideDir = esc(l.side) + (l.dir ? ` · walk ${l.dir}` : '');
+    const sideDir = esc(l.side) + (l.dir ? ` · ${l.pavement === 'both' || l.pavement === 'back' ? 'drive' : 'walk'} ${l.dir}` : '');
     const homes = l.homes < 0.5 ? 'nothing to deliver' : `${Math.round(l.homes)} home${Math.round(l.homes) === 1 ? '' : 's'}`;
     return `<li data-n="${l.n}"><span class="box"></span><span class="num" style="background:__LEGCOLOR_${l.n}__">${l.n}</span>` +
       `<div class="txt"><b>${esc(l.street)}</b> <span class="sd">${sideDir} · ${homes}</span><br><span class="cue">${esc(l.cue)}</span></div></li>`;
@@ -317,12 +317,13 @@ const PrintSheets = (() => {
   function directionsRoutePagesHtml(route, color, appUrlBase, wardName) {
     const d = route.directions;
     const steps = d.legs.filter(l => l.type === 'leg');
+    const lanes = steps.some(l => l.pavement === 'both');
     const url = `${appUrlBase}#${route.secret}`;
     const colorLight = tint(color);
     let subtitle = `${esc(wardName)} Ward · Leaflet Delivery Round Sheet`;
     if (route.hub) subtitle += ` · Area: ${esc(route.hub.label)}`;
     const startLine = route.marker
-      ? `Park on ${esc(route.marker.label)} (suggested, please use your own discretion). It's the coloured dot on the map.`
+      ? `Park on ${esc(String(route.marker.label).replace(/\s*\(part [\d.]+\)$/, ''))} (suggested, please use your own discretion). It's the coloured dot on the map.`
       : `${esc(route.startHint)}. Step 1 says where to walk to.`;
     const last = steps[steps.length - 1];
     const items = steps.map(stepItemHtml).join('') +
@@ -337,7 +338,7 @@ const PrintSheets = (() => {
         </div>
         <div class="route-titlebar-right">
           <div class="route-kind">${kindLabel(route.kind)}</div>
-          <div>${(d.stats.walkM / 1000).toFixed(1)} km walk · ${d.stats.steps} steps · ${d.stats.crossings} crossings</div>
+          <div>${(d.stats.walkM / 1000).toFixed(1)} km ${lanes ? 'in all' : 'walk'} · ${d.stats.steps} steps · ${d.stats.crossings} crossings</div>
           <div class="route-res">${Math.round(route.residencesTotal)} estimated residences</div>
         </div>
       </div>
@@ -345,7 +346,9 @@ const PrintSheets = (() => {
       <div class="map-key" id="key-${id}"></div>
       <div class="info-row">
         <div class="rule"><b>Start:</b> ${startLine}<br>
-          <b>Golden rule:</b> keep the road on your left, so traffic comes towards you. The letterboxes you're doing are on your right. Only cross where a step tells you to. Tick each step off as you go.
+          ${lanes
+    ? '<b>How it works:</b> on lanes, drive along delivering both sides, then head back. On streets, park and walk, keeping the road on your left so traffic comes towards you, with the letterboxes on your right. Tick each step off as you go.'
+    : "<b>Golden rule:</b> keep the road on your left, so traffic comes towards you. The letterboxes you're doing are on your right. Only cross where a step tells you to. Tick each step off as you go."}
           ${route.notes ? `<div class="route-notes">${esc(route.notes)}</div>` : ''}</div>
         <div class="qr">${qrSvg(url, 3)}<div class="qr-url">${esc(url)}</div></div>
       </div>
