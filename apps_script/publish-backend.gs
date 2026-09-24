@@ -29,6 +29,12 @@
  * The token this script uses NEVER reaches the browser at any point --
  * the client only ever POSTs {constituency, ward, htmlContent} here and
  * gets back {ok, url, cleanedUp}.
+ *
+ * It also accepts {action: 'cachePubs', bbox} from js/pubs.js whenever a
+ * browser had to ask Overpass for a ward outside data/pubs.json's
+ * coverage. Only the bbox is taken from the browser: this script fetches
+ * the pubs from Overpass itself and commits them, so nobody can write
+ * made-up pubs into the repo through it.
  */
 
 const DEFAULT_OWNER = 'Daemeous';
@@ -39,12 +45,15 @@ const MAX_AGE_DAYS = 14;
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
-    if (!body.ward || !body.htmlContent) return jsonResp({ ok: false, error: 'Missing ward or htmlContent' });
 
     const token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
     if (!token) return jsonResp({ ok: false, error: 'Server misconfigured: GITHUB_TOKEN script property is not set.' });
     const owner = PropertiesService.getScriptProperties().getProperty('GITHUB_OWNER') || DEFAULT_OWNER;
     const repo = PropertiesService.getScriptProperties().getProperty('GITHUB_REPO') || DEFAULT_REPO;
+
+    if (body.action === 'cachePubs') return jsonResp({ ok: true, ...cachePubs(owner, repo, token, body.bbox) });
+
+    if (!body.ward || !body.htmlContent) return jsonResp({ ok: false, error: 'Missing ward or htmlContent' });
 
     const result = publishWard(owner, repo, token, body.constituency || 'district', body.ward, body.htmlContent);
     return jsonResp({ ok: true, ...result });
@@ -145,6 +154,100 @@ function publishWard(owner, repo, token, constituency, ward, htmlContent) {
   writeFile(owner, repo, MANIFEST_PATH, JSON.stringify(manifest, null, 2), `Update manifest for ${filename}`, token);
 
   return { url: `https://${owner}.github.io/${repo}/${filename}`, filename, cleanedUp };
+}
+
+// ── Shared pub cache (data/pubs.json) ──
+// Format: {coverage: [{bbox, fetchedAt}], pubs: [{name, lat, lon}]} --
+// `pubs` holds every OSM pub/bar inside each coverage bbox. Must stay in
+// step with the query and parsing in js/pubs.js.
+const PUBS_PATH = 'data/pubs.json';
+const PUBS_MAX_BBOX_DEG = 0.6;   // bigger than any ward (+ buffer), small enough to stop abuse
+const PUBS_MAX_COVERAGE = 300;
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://lz4.overpass-api.de/api/interpreter',
+];
+
+function cachePubs(owner, repo, token, bbox) {
+  if (!Array.isArray(bbox) || bbox.length !== 4 || !bbox.every(x => typeof x === 'number' && isFinite(x))) {
+    throw new Error('bbox must be [minLat, minLon, maxLat, maxLon]');
+  }
+  const [minLat, minLon, maxLat, maxLon] = bbox;
+  if (minLat < -90 || maxLat > 90 || minLon < -180 || maxLon > 180 || minLat >= maxLat || minLon >= maxLon) {
+    throw new Error('bbox out of range');
+  }
+  if (maxLat - minLat > PUBS_MAX_BBOX_DEG || maxLon - minLon > PUBS_MAX_BBOX_DEG) {
+    throw new Error(`bbox larger than ${PUBS_MAX_BBOX_DEG} degrees`);
+  }
+
+  // Two people opening uncached wards at once would otherwise race on the
+  // file's sha and one commit would fail.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  try {
+    const file = ghApi('GET', owner, repo, PUBS_PATH, token);
+    let cache = { coverage: [], pubs: [] };
+    if (file) {
+      try { cache = JSON.parse(Utilities.newBlob(Utilities.base64Decode(file.content)).getDataAsString('UTF-8')); } catch (e) {}
+    }
+    if (cache.coverage.some(c => bboxContains(c.bbox, bbox))) return { cached: false, reason: 'already covered' };
+    if (cache.coverage.length >= PUBS_MAX_COVERAGE) return { cached: false, reason: 'coverage list full' };
+
+    const fresh = queryPubs(bbox);
+    const key = p => `${p.name}|${p.lat.toFixed(6)}|${p.lon.toFixed(6)}`;
+    // Anything already cached inside this bbox is replaced by the fresh
+    // result (drops closed pubs); coverage entries this bbox swallows go too.
+    const pubs = cache.pubs.filter(p => !inBbox(p, bbox));
+    const seen = new Set(pubs.map(key));
+    fresh.forEach(p => { if (!seen.has(key(p))) { pubs.push(p); seen.add(key(p)); } });
+    pubs.sort((a, b) => a.name.localeCompare(b.name) || a.lat - b.lat);
+    const coverage = cache.coverage.filter(c => !bboxContains(bbox, c.bbox));
+    coverage.push({ bbox, fetchedAt: new Date().toISOString().slice(0, 10) });
+
+    const content = JSON.stringify({ coverage, pubs }, null, 1) + '\n';
+    const put = ghApi('PUT', owner, repo, PUBS_PATH, token, {
+      message: `Cache ${fresh.length} pubs for bbox ${bbox.join(',')}`,
+      content: Utilities.base64Encode(content, Utilities.Charset.UTF_8),
+      sha: file ? file.sha : undefined,
+    });
+    return { cached: true, added: fresh.length, commit: put && put.commit ? put.commit.sha : null };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function bboxContains(outer, inner) {
+  return outer[0] <= inner[0] && outer[1] <= inner[1] && outer[2] >= inner[2] && outer[3] >= inner[3];
+}
+
+function inBbox(p, bbox) {
+  return p.lat >= bbox[0] && p.lat <= bbox[2] && p.lon >= bbox[1] && p.lon <= bbox[3];
+}
+
+function queryPubs(bbox) {
+  const b = bbox.join(',');
+  const query = `[out:json][timeout:50];(node["amenity"="pub"](${b});way["amenity"="pub"](${b});node["amenity"="bar"](${b}););out center tags;`;
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (const endpoint of OVERPASS_ENDPOINTS) {
+      try {
+        const res = UrlFetchApp.fetch(endpoint, { method: 'post', payload: { data: query }, muteHttpExceptions: true });
+        if (res.getResponseCode() !== 200) throw new Error('HTTP ' + res.getResponseCode());
+        const result = JSON.parse(res.getContentText());
+        const pubs = [];
+        (result.elements || []).forEach(el => {
+          const name = el.tags && el.tags.name;
+          if (!name) return;
+          if (el.type === 'node') pubs.push({ name, lat: el.lat, lon: el.lon });
+          else if (el.center) pubs.push({ name, lat: el.center.lat, lon: el.center.lon });
+        });
+        return pubs;
+      } catch (e) { lastErr = e; }
+    }
+    Utilities.sleep(3000 * (attempt + 1));
+  }
+  throw new Error('Overpass unreachable: ' + lastErr);
 }
 
 function jsonResp(obj) {

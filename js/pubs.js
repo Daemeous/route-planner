@@ -38,8 +38,77 @@ const Pubs = (() => {
     throw new Error(`Overpass API unreachable after ${attempts} attempts: ${lastErr}`);
   }
 
+  // data/pubs.json is a committed cache of OSM pubs: `coverage` lists the
+  // bboxes it holds EVERY pub for, `pubs` is the de-duplicated union. Pubs
+  // rarely change, so a bbox inside any covered bbox is answered from it
+  // with no Overpass round-trip. Anything else is fetched live, and the
+  // publish backend is then asked to fetch that bbox itself and commit it
+  // to the file, so the next person to open that ward skips Overpass too.
+  // (tools/build-pubs-cache.js refreshes a whole district in one go.)
+  const CACHE_URL = 'data/pubs.json';
+  let cachePromise = null;
+
+  function loadCache() {
+    if (!cachePromise) {
+      cachePromise = (async () => {
+        if (typeof window === 'undefined') {
+          const fs = require('fs'), path = require('path');
+          return JSON.parse(fs.readFileSync(path.join(__dirname, '..', CACHE_URL), 'utf8'));
+        }
+        const res = await fetch(CACHE_URL);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return await res.json();
+      })().catch(() => null);
+    }
+    return cachePromise;
+  }
+
+  function bboxContains(outer, inner) {
+    return outer[0] <= inner[0] && outer[1] <= inner[1] && outer[2] >= inner[2] && outer[3] >= inner[3];
+  }
+
+  function pubKey(p) { return `${p.name}|${p.lat.toFixed(6)}|${p.lon.toFixed(6)}`; }
+
+  function inBbox(p,[minLat, minLon, maxLat, maxLon]) {
+    return p.lat >= minLat && p.lat <= maxLat && p.lon >= minLon && p.lon <= maxLon;
+  }
+
+  // Fire-and-forget: the backend re-fetches the bbox from Overpass itself
+  // (it never trusts pub data sent from a browser) and commits it to
+  // data/pubs.json. A failure here only means the next visitor waits on
+  // Overpass again, so it's swallowed.
+  function requestServerCache(bbox) {
+    if (typeof window === 'undefined' || typeof Publish === 'undefined') return;
+    fetch(Publish.PUBLISH_BACKEND_URL, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'cachePubs', bbox }),
+    }).catch(() => {});
+  }
+
   // bbox = [minLat, minLon, maxLat, maxLon]
-  async function fetchPubs(bbox) {
+  async function fetchPubs(bbox, { useCache = true } = {}) {
+    if (useCache) {
+      const cache = await loadCache();
+      if (cache && Array.isArray(cache.coverage) && cache.coverage.some(c => bboxContains(c.bbox, bbox))) {
+        return cache.pubs.filter(p => inBbox(p, bbox));
+      }
+    }
+    const pubs = await queryPubs(bbox);
+    if (useCache) {
+      const cache = await loadCache();
+      // Remember it for the rest of this session, then ask for it to be
+      // committed for everyone else.
+      if (cache && Array.isArray(cache.coverage)) {
+        cache.coverage.push({ bbox, fetchedAt: new Date().toISOString().slice(0, 10) });
+        const seen = new Set(cache.pubs.map(pubKey));
+        cache.pubs.push(...pubs.filter(p => !seen.has(pubKey(p))));
+      }
+      requestServerCache(bbox);
+    }
+    return pubs;
+  }
+
+  async function queryPubs(bbox) {
     const [minLat, minLon, maxLat, maxLon] = bbox;
     const query = `[out:json][timeout:50];(` +
       `node["amenity"="pub"](${minLat},${minLon},${maxLat},${maxLon});` +

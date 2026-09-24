@@ -106,7 +106,8 @@ beyond the current page session.
 | `js/secretWords.js` | Per-route access-word generation for the app's URL scheme |
 | `js/sheets.js` | Flexible column-mapping CSV/Sheets-API row loader |
 | `js/tracker.js` | Reads a live leaflet-map deployment's own `MAP_CONFIG` |
-| `js/pubs.js` | OpenStreetMap Overpass pub lookup |
+| `js/pubs.js` | Pub lookup: served from `data/pubs.json` when the ward is covered, otherwise live from OpenStreetMap Overpass (and the ward is then queued for caching) |
+| `data/pubs.json` | Shared pub cache. The publish backend adds each uncached ward the first time anyone opens it; `node tools/build-pubs-cache.js <wards.csv>` adds or refreshes a whole district |
 | `js/pipeline.js` | Orchestrates a full ward build (single-hub or multi-hub) |
 | `js/mapData.js` | Assembles the final route payload from a clustering result |
 | `js/htmlApp.js` | Builds the downloadable/publishable app HTML |
