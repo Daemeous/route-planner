@@ -156,7 +156,8 @@
         <h3>Patriot</h3>
         <p>Splits a route into numbered legs ("4 · Fairfield Road · walk NW → · both sides"), with an arrowed, numbered line per leg on the map. Every leg assumes you do <b>both sides in one pass</b>, so you either zig-zag across the road the whole way or walk each close in and back out twice.</p>
         <h3>This version</h3>
-        <p>Treats each side of a road as its own pavement and walks each one <b>once</b>. The rule is simple: <b>keep the road on your right, and the letterboxes you're doing are on your left.</b> Follow it round every corner and you go up one side of a close, cross at the end, and come back down the other. When you come back out onto the main road, you carry on along the side you were on.</p>
+        <p>Treats each side of a road as its own pavement and walks each one <b>once</b>. The rule is simple: <b>keep the road on your left, and the letterboxes you're doing are on your right.</b> Follow it round every corner and you go up one side of a close, cross at the end, and come back down the other. When you come back out onto the main road, you carry on along the side you were on.</p>
+        <p>It's the road on your <b>left</b> so that in the UK the nearest traffic is coming towards you. You can see lorries, puddle splashes and gusts coming, the same idea as the Highway Code's advice to face oncoming traffic where there's no pavement.</p>
       </div>
       <div>
         <h3>How it's worked out</h3>
@@ -168,12 +169,12 @@
         <h3>Where a route starts</h3>
         <ul>
           <li><b>Route's own start</b> (default, for people going out on their own): drive routes start at their parking spot; others start at their busiest junction.</li>
-          <li><b>My location</b> uses your phone's GPS, or tap the map to pretend you're somewhere. It lists the nearest routes in every ward and starts the chosen one at the corner closest to you. This is a first step towards generating routes on the spot around wherever someone is.</li>
+          <li><b>My location</b> uses your phone's GPS, or tap the map to pretend you're somewhere. It lists the nearest routes in every ward by <b>walking distance</b> and starts the chosen one at the corner that's the shortest walk away. This is a first step towards generating routes on the spot around wherever someone is.</li>
           <li><b>Event start (pub)</b> is the action-day behaviour: every walk route sets off from the ward's pub.</li>
         </ul>
         <h3>Known gaps in this prototype</h3>
         <ul>
-          <li>Walks between separate parts of a route are drawn as <b>straight dashed lines</b>. They don't follow real roads yet.</li>
+          <li>Walks to a route, and between separate parts of one, follow the roads in the ward's data. Roads that aren't in it (a main road with no homes left, a footpath) can't be used. Gaps under 120 m are bridged with a straight link, and anything else falls back to a straight line.</li>
           <li>We don't know which sides actually have houses or pavements, so homes are split 50/50 between the two sides.</li>
           <li>The data is a frozen copy of the published Penkside, Littleworth and Baswich apps.</li>
         </ul>
@@ -209,6 +210,9 @@ const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">Open
 
 const state = { ward: null, route: null, view: 'app', startMode: 'route', me: null, plan: null, sel: null, done: new Set() };
 let appMap = null, printMaps = [];
+// Walking network per ward (every road in the ward's data), built on first use.
+const NETS = {};
+const netFor = wk => NETS[wk] || (NETS[wk] = WalkOrder.buildNetwork(WARDS[wk].roads));
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const legColor = n => LEG_COLORS[(n - 1) % LEG_COLORS.length];
@@ -366,7 +370,7 @@ function drawLegs(map, plan, { sel = null, done = new Set(), offsetPx = 4, onPic
     // A split print map: other steps are faint context only, no numbers or arrows.
     for (const l of legs) {
       if (only.has(l.n)) continue;
-      L.polyline(offsetLatLngs(map, l.latlngs, offsetPx), { color: '#9aa0a6', weight: 2.5, opacity: 0.55, interactive: false }).addTo(map.legLayer);
+      L.polyline(offsetLatLngs(map, l.latlngs, offsetPx * (l.pavement === 'right' ? -1 : 1)), { color: '#9aa0a6', weight: 2.5, opacity: 0.55, interactive: false }).addTo(map.legLayer);
     }
     legs = legs.filter(l => only.has(l.n));
   }
@@ -375,7 +379,7 @@ function drawLegs(map, plan, { sel = null, done = new Set(), offsetPx = 4, onPic
     const isSel = l.n === sel, isDone = done.has(l.n);
     const color = isDone ? '#9aa0a6' : legColor(l.n);
     const faded = sel != null && !isSel;
-    const line = offsetLatLngs(map, l.latlngs, offsetPx);
+    const line = offsetLatLngs(map, l.latlngs, offsetPx * (l.pavement === 'right' ? -1 : 1));
     const pl = L.polyline(line, {
       color, weight: isSel ? 6 : 4, opacity: faded ? 0.35 : 0.95, lineCap: 'round', lineJoin: 'round', bubblingMouseEvents: false,
     }).addTo(map.legLayer);
@@ -394,7 +398,7 @@ function drawLegs(map, plan, { sel = null, done = new Set(), offsetPx = 4, onPic
   }
   // Number badges last so they sit above every line.
   for (const l of order) {
-    const line = offsetLatLngs(map, l.latlngs, offsetPx);
+    const line = offsetLatLngs(map, l.latlngs, offsetPx * (l.pavement === 'right' ? -1 : 1));
     const [p] = pointsAlong(map, line, [Math.min(0.3, 18 / Math.max(screenLength(map, line), 1))]);
     const color = done.has(l.n) ? '#9aa0a6' : legColor(l.n);
     const faded = sel != null && l.n !== sel;
@@ -428,7 +432,7 @@ function renderApp(ctx) {
       <span class="tag">${st.crossings} crossings</span>
     </div>
     ${state.startMode === 'me' ? nearestHtml() : ''}
-    <div class="rule">Keep the <b>road on your right</b>. The letterboxes you're doing are on your <b>left</b>. Only cross where a step tells you to.</div>
+    <div class="rule">Keep the <b>road on your left</b>, so traffic comes towards you. The letterboxes you're doing are on your <b>right</b>. Only cross where a step tells you to.</div>
     <div class="progress"><span>${state.done.size} of ${legs.length} steps done</span><span>~${Math.round(doneHomes)} of ${Math.round(st.homes)} homes</span></div>`;
 
   wireNearest();
@@ -659,7 +663,7 @@ function showPrint(ctx) {
       ? `The top map shows the whole route. The dashed boxes are Maps ${panels.map(pn => pn.letter).join(', ').replace(/, ([^,]*)$/, ' and $1')}, which zoom in on each part in walking order. `
       : ''}Numbers give the order. Arrows show which way to walk. Each coloured line is drawn on the side of the road you'll be on, so a road done both ways shows two lines. Dotted line = walk there, nothing to deliver.</div>
     <div class="print-rule"><b>Start:</b> ${startLine}<br>
-      <b>Golden rule:</b> keep the road on your right. The letterboxes you're doing are on your left. Only cross where a step tells you to. Tick each step off as you go.</div>
+      <b>Golden rule:</b> keep the road on your left, so traffic comes towards you. The letterboxes you're doing are on your right. Only cross where a step tells you to. Tick each step off as you go.</div>
     <table class="dirs">
       <thead><tr><th style="width:20px"></th><th style="width:28px">#</th><th style="width:170px">Street &amp; side</th><th>What to do</th><th style="width:44px;text-align:right">Homes</th></tr></thead>
       <tbody>
@@ -711,8 +715,20 @@ function nearestRoutes(me, limit = 6) {
         const dm = here.distanceTo(p);
         if (dm < best) best = dm;
       }
-      out.push({ ward: wk, id: m.id, name: m.name, wardName: d.ward, homes: m.residences, color: colors[m.id], d: best });
+      out.push({ ward: wk, id: m.id, name: m.name, wardName: d.ward, homes: m.residences, color: colors[m.id], straight: best });
     }
+  }
+  // Rank by walking distance along the ward's roads. Wards more than 5 km
+  // away aren't worth routing through; a route the network can't reach
+  // (no road link in the data) falls back to a straight-line estimate.
+  const byWard = {};
+  for (const r of out) byWard[r.ward] = Math.min(byWard[r.ward] ?? Infinity, r.straight);
+  const walks = {};
+  for (const [wk, near] of Object.entries(byWard)) if (near < 5000) walks[wk] = netFor(wk).from(me).routeDistances();
+  for (const r of out) {
+    const w = walks[r.ward] && walks[r.ward][r.id];
+    r.walked = w != null && isFinite(w);
+    r.d = r.walked ? w : r.straight * 1.3; // typical road-vs-crow-flies ratio
   }
   return out.sort((a, b) => a.d - b.d).slice(0, limit);
 }
@@ -727,7 +743,7 @@ function nearestHtml() {
     ${list.map(r => `<button class="near-item${r.ward === state.ward && r.id === state.route ? ' on' : ''}" data-ward="${r.ward}" data-id="${r.id}">
       <span class="sw" style="background:${r.color}"></span>
       <span class="nm"><b>${esc(r.wardName)} ${esc(r.id)}</b> · ${esc(r.name)} · ${Math.round(r.homes)} homes</span>
-      <span class="ds">${metres(r.d)}</span></button>`).join('')}
+      <span class="ds" title="${r.walked ? 'Walking distance along roads' : 'No road link in the data: straight-line estimate'}">${r.walked ? '' : '~'}${metres(r.d)} walk</span></button>`).join('')}
     <div class="near-empty">Tap the map to move your pretend location.</div></div>`;
 }
 
@@ -766,7 +782,7 @@ function setMe(latlng, jump) {
 // ---- Wiring ------------------------------------------------------------------
 function render() {
   const ctx = routeContext(state.ward, state.route);
-  state.plan = WalkOrder.plan({ roads: ctx.roads }, { start: ctx.start || undefined });
+  state.plan = WalkOrder.plan({ roads: ctx.roads }, { start: ctx.start || undefined, network: netFor(state.ward) });
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === state.view));
   document.getElementById('appView').hidden = state.view !== 'app';
   document.getElementById('printView').hidden = state.view !== 'print';

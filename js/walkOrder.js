@@ -18,6 +18,14 @@
 // Every pavement is walked exactly once. Walking distance is therefore
 // ~2x the road length, which is the real cost of doing both sides properly.
 //
+// By default the finished tour is then walked in REVERSE, so volunteers keep
+// the road on their LEFT (letterboxes on the right): in the UK that makes the
+// nearest traffic oncoming, so HGVs, splashes and gusts are seen coming --
+// the same reasoning as Highway Code rule 2, and it matters most on rural
+// lanes with no pavement. Reversing a closed tour is still a valid tour that
+// walks every pavement once, so nothing else changes. opts.keepRoadOn =
+// 'right' gives the un-reversed tour.
+//
 // Input roads are the app payload shape: {street, res, segments:[[[lat,lon],...]]}.
 'use strict';
 
@@ -289,7 +297,27 @@ const WalkOrder = (() => {
       return [...new Set(pick.map(h => g.edges[h >> 1].street))];
     };
 
+    // Walk a tour backwards: same pavements, opposite direction, so the road
+    // is on your left instead of your right.
+    function reverseTour(seq) {
+      const rev = [];
+      for (let i = seq.length - 1; i >= 0; i--) {
+        const st = seq[i];
+        if (st.type === 'walk') rev.push({ type: 'walk', h: st.h ^ 1, pavementOnRight: true });
+        else rev.push({ ...st, from: st.to, to: st.from, back: !st.back });
+      }
+      let prevH = null;
+      for (const st of rev) {
+        if (st.type !== 'walk') continue;
+        st.uturn = prevH !== null && st.h === (prevH ^ 1); // straight back along the road you just did
+        prevH = st.h;
+      }
+      return rev;
+    }
+    const roadOnLeft = opts.keepRoadOn !== 'right';
+
     function tourComponent(comp, startH) {
+      const out = [];
       // Spanning tree over this component's faces (Prim, cost = roads crossed).
       const children = new Map(); // corner h -> [{toH}]
       const inTree = new Set([faceOf[startH]]);
@@ -316,16 +344,17 @@ const WalkOrder = (() => {
         do {
           for (const ch of children.get(h) || []) {
             const v = T.head(h);
-            steps.push({ type: 'cross', node: v, roads: crossingsNamed(v, h, ch), from: h, to: ch });
+            out.push({ type: 'cross', node: v, roads: crossingsNamed(v, h, ch), from: h, to: ch });
             walkFace(ch);
-            steps.push({ type: 'cross', node: v, roads: crossingsNamed(v, ch, h), from: ch, to: h, back: true });
+            out.push({ type: 'cross', node: v, roads: crossingsNamed(v, ch, h), from: ch, to: h, back: true });
           }
           const n = T.next(h);
-          steps.push({ type: 'walk', h: n, uturn: n === (h ^ 1) });
+          out.push({ type: 'walk', h: n, uturn: n === (h ^ 1) });
           h = n;
         } while (h !== startCorner);
       };
       walkFace(startH);
+      steps.push(...(roadOnLeft ? reverseTour(out) : out));
     }
 
     // Order components greedily from the start point.
@@ -345,15 +374,37 @@ const WalkOrder = (() => {
     };
     let here = startXY || defaultStart();
     let firstApproach = null;
+    // With a walking network, "nearest" means shortest walk and the walk-in
+    // follows real roads. A path that's absurdly longer than the straight
+    // line (the network is missing a link) falls back to the straight line.
+    const walkTo = (field, v) => {
+      if (!field) return null;
+      const path = field.pathTo(proj.toLL(g.nodes[v].p));
+      if (!path) return null;
+      const straight = dist(here, g.nodes[v].p);
+      return path.d <= 3 * straight + 300 ? path : null;
+    };
     while (done.size < nComp) {
+      const field = opts.network ? opts.network.from(proj.toLL(here)) : null;
       let best = null;
       for (let c = 0; c < nComp; c++) {
         if (done.has(c)) continue;
-        const nn = nearestNode(here, c);
-        if (!best || nn.d < best.d) best = { c, ...nn };
+        if (field) {
+          g.nodes.forEach((nd, v) => {
+            if (compOfNode[v] !== c || !T.rot[v].length) return;
+            const path = walkTo(field, v);
+            const d = path ? path.d : dist(here, nd.p);
+            if (!best || d < best.d) best = { c, v, d, path };
+          });
+        } else {
+          const nn = nearestNode(here, c);
+          if (!best || nn.d < best.d) best = { c, ...nn, path: null };
+        }
       }
-      const h0 = cornerFacing(best.v, here);
-      const approach = { type: 'approach', fromXY: here, toNode: best.v, d: best.d, first: done.size === 0 };
+      // Face the corner the walk-in arrives from.
+      const lastLeg = best.path && best.path.latlngs.length >= 2 ? proj.toXY(best.path.latlngs[best.path.latlngs.length - 2]) : here;
+      const h0 = cornerFacing(best.v, dist(lastLeg, g.nodes[best.v].p) > 1 ? lastLeg : here);
+      const approach = { type: 'approach', fromXY: here, toNode: best.v, d: best.d, path: best.path, first: done.size === 0 };
       if (done.size === 0) firstApproach = approach;
       steps.push(approach);
       tourComponent(best.c, h0);
@@ -390,8 +441,11 @@ const WalkOrder = (() => {
           const from = !st.first ? 'Walk'
             : start.kind === 'me' ? 'From where you are, walk'
             : start.kind !== 'parking' && start.label ? `From ${start.label}, walk` : 'Walk';
-          pending.push(`${lead}${from} to ${where} (about ${Math.round(st.d / 10) * 10} m, nothing to deliver on the way).`);
-          legs.push({ type: 'transfer', from: proj.toLL(st.fromXY), to: proj.toLL(g.nodes[st.toNode].p), d: st.d });
+          // Name the roads walked along, leaving out the ones at the destination corner.
+          const via = st.path ? st.path.streets.filter(n => !names.includes(n) && !/^Unknown Road/.test(n)).slice(0, 3) : [];
+          const viaTxt = via.length ? ` via ${via.join(', ').replace(/, ([^,]*)$/, ' and $1')}` : '';
+          pending.push(`${lead}${from} to ${where}${viaTxt} (about ${Math.round(st.d / 10) * 10} m, nothing to deliver on the way).`);
+          legs.push({ type: 'transfer', latlngs: st.path ? st.path.latlngs : [proj.toLL(st.fromXY), proj.toLL(g.nodes[st.toNode].p)], d: st.d, routed: !!st.path });
         } else if (st.first) {
           pending.push(`${lead}Start at ${where}.`);
         }
@@ -415,17 +469,18 @@ const WalkOrder = (() => {
         let turn = null;
         if (st.uturn && prev) { turn = { kind: 'uturn', from: prev.street }; crossings++; }
         else if (prev) turn = { kind: turnWord(turnHere), fork, from: prev.street };
-        cur = { type: 'leg', street: e.street, pre: pending, turn, xy: [...pts], homes: 0, len: 0, sideVec: [0, 0] };
+        cur = { type: 'leg', street: e.street, pre: pending, turn, xy: [...pts], homes: 0, len: 0, sideVec: [0, 0], pavement: st.pavementOnRight ? 'right' : 'left' };
         pending = [];
       } else {
         cur.xy.push(...pts.slice(1));
       }
       cur.homes += e.res / 2;
       cur.len += e.len;
-      // The pavement is on the left of travel: sum the left normals (length-weighted).
+      // Which side of the road the pavement is on: sum the normals on that side of travel (length-weighted).
+      const sgn = st.pavementOnRight ? -1 : 1;
       for (let k = 1; k < pts.length; k++) {
         const dx = pts[k][0] - pts[k - 1][0], dy = pts[k][1] - pts[k - 1][1];
-        cur.sideVec[0] += -dy; cur.sideVec[1] += dx;
+        cur.sideVec[0] += -dy * sgn; cur.sideVec[1] += dx * sgn;
       }
       cur.endBearing = T.inBearing(st.h);
     }
@@ -434,7 +489,7 @@ const WalkOrder = (() => {
     // Finalise: numbering, compass words, cue sentences, lat/lng geometry.
     let n = 0;
     const out = legs.map(l => {
-      if (l.type === 'transfer') return { type: 'transfer', latlngs: [l.from, l.to], len: l.d };
+      if (l.type === 'transfer') return { type: 'transfer', latlngs: l.latlngs, len: l.d, routed: l.routed };
       const a = l.xy[0], b = l.xy[l.xy.length - 1];
       const dir = dist(a, b) > Math.max(20, l.len * 0.25) ? compass8(bearing(a, b)) : null;
       const along = dir ? `walk ${SIDE_WORD[dir]} along ${l.street}` : `walk round ${l.street}`;
@@ -451,7 +506,7 @@ const WalkOrder = (() => {
         type: 'leg', n: ++n, street: l.street, cue: [...l.pre, action].join(' '),
         homes: l.homes, len: l.len,
         side: SIDE_WORD[compass8(bearing([0, 0], l.sideVec))] + ' side',
-        dir, latlngs: l.xy.map(proj.toLL),
+        dir, pavement: l.pavement, latlngs: l.xy.map(proj.toLL),
       };
     });
     const walkLegs = out.filter(l => l.type === 'leg');
@@ -479,7 +534,161 @@ const WalkOrder = (() => {
     };
   }
 
-  return { plan, buildGraph, baseName };
+  // ---- 5. Walking network ----------------------------------------------
+  // Every road in the ward, so the walk to a route (and between separate
+  // parts of one) follows real roads, and routes can be ranked by how far
+  // they are to WALK to rather than as the crow flies. Works in lat/lng at
+  // its edges so it can be shared by plans with their own projections.
+  // Only knows the roads in the data it's given -- a footpath or main road
+  // missing from the sheet can't be used, so some walks come out longer.
+  function buildNetwork(allRoads) {
+    const roads = allRoads.filter(r => r.segments && r.segments.length);
+    const all = roads.flatMap(r => r.segments.flat());
+    const proj = makeProjector(all.reduce((s, p) => s + p[0], 0) / all.length, all.reduce((s, p) => s + p[1], 0) / all.length);
+    const g = buildGraph(roads, proj);
+    // Bridge short gaps between disconnected pieces of the network with a
+    // straight link -- typically a main road or footpath that isn't in the
+    // data (no homes left on it), 30-100 m across. Longer gaps are left
+    // alone: those are genuinely separate areas.
+    const GAP_LINK_M = 120;
+    {
+      const comp = g.nodes.map(() => -1), nb = g.nodes.map(() => []);
+      g.edges.forEach(e => { nb[e.a].push(e.b); nb[e.b].push(e.a); });
+      let nc = 0;
+      g.nodes.forEach((_, v) => {
+        if (comp[v] !== -1 || !nb[v].length) return;
+        const stack = [v]; comp[v] = nc;
+        while (stack.length) { const u = stack.pop(); for (const w of nb[u]) if (comp[w] === -1) { comp[w] = nc; stack.push(w); } }
+        nc++;
+      });
+      const bestPair = new Map();
+      for (let v = 0; v < g.nodes.length; v++) {
+        if (comp[v] === -1) continue;
+        for (let w = v + 1; w < g.nodes.length; w++) {
+          if (comp[w] === -1 || comp[w] === comp[v]) continue;
+          const d = dist(g.nodes[v].p, g.nodes[w].p);
+          if (d > GAP_LINK_M) continue;
+          const key = Math.min(comp[v], comp[w]) + ',' + Math.max(comp[v], comp[w]);
+          if (!bestPair.has(key) || d < bestPair.get(key).d) bestPair.set(key, { v, w, d });
+        }
+      }
+      for (const { v, w, d } of bestPair.values()) {
+        g.edges.push({ a: v, b: w, pts: [g.nodes[v].p, g.nodes[w].p], len: d, road: -1, street: null, res: 0 });
+      }
+    }
+    for (const e of g.edges) e.cum = cumulative(e.pts);
+    const adj = g.nodes.map(() => []);
+    g.edges.forEach((e, i) => { adj[e.a].push(i); adj[e.b].push(i); });
+
+    function locate(ll) {
+      const p = proj.toXY(ll);
+      let best = null;
+      g.edges.forEach((e, i) => {
+        const hit = nearestOn(e.pts, e.cum, p);
+        if (!best || hit.d < best.d) best = { e: i, s: hit.s, d: hit.d, pt: hit.pt };
+      });
+      return best && { ...best, p };
+    }
+
+    // Shortest walks from one point to everywhere (Dijkstra with a binary heap).
+    function from(ll) {
+      const src = locate(ll);
+      const n = g.nodes.length;
+      const dist = new Float64Array(n).fill(Infinity), prevEdge = new Int32Array(n).fill(-1);
+      const heap = [];
+      const push = (d, v) => {
+        heap.push([d, v]);
+        for (let i = heap.length - 1; i > 0;) { const j = (i - 1) >> 1; if (heap[j][0] <= heap[i][0]) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; }
+      };
+      const pop = () => {
+        const top = heap[0], last = heap.pop();
+        if (heap.length) {
+          heap[0] = last;
+          for (let i = 0; ;) {
+            const l = 2 * i + 1, r = l + 1; let m = i;
+            if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+            if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+            if (m === i) break;
+            [heap[i], heap[m]] = [heap[m], heap[i]]; i = m;
+          }
+        }
+        return top;
+      };
+      if (src) {
+        const e = g.edges[src.e], len = e.cum[e.cum.length - 1];
+        dist[e.a] = src.d + src.s; dist[e.b] = src.d + (len - src.s);
+        prevEdge[e.a] = -2; prevEdge[e.b] = -2; // reached straight from the start point
+        push(dist[e.a], e.a); push(dist[e.b], e.b);
+      }
+      while (heap.length) {
+        const [d, v] = pop();
+        if (d > dist[v]) continue;
+        for (const ei of adj[v]) {
+          const e = g.edges[ei], w = e.a === v ? e.b : e.a, nd = d + e.cum[e.cum.length - 1];
+          if (nd < dist[w]) { dist[w] = nd; prevEdge[w] = ei; push(nd, w); }
+        }
+      }
+
+      // Walk from the start to `ll`: {d, latlngs, streets}, or null if unreachable.
+      function pathTo(ll) {
+        const t = locate(ll);
+        if (!src || !t) return null;
+        const te = g.edges[t.e], tlen = te.cum[te.cum.length - 1];
+        const se = g.edges[src.e], slen = se.cum[se.cum.length - 1];
+        const xy = [src.p, src.pt];
+        const streets = [];
+        const addStreet = n => { if (n && streets[streets.length - 1] !== n) streets.push(n); };
+        if (t.e === src.e) {
+          const d = src.d + Math.abs(src.s - t.s) + t.d;
+          const piece = src.s <= t.s ? slice(se.pts, se.cum, src.s, t.s) : slice(se.pts, se.cum, t.s, src.s).reverse();
+          xy.push(...piece, t.p);
+          addStreet(se.street);
+          return { d, latlngs: xy.map(proj.toLL), streets };
+        }
+        const viaA = dist[te.a] + t.s, viaB = dist[te.b] + (tlen - t.s);
+        const endNode = viaA <= viaB ? te.a : te.b;
+        const d = Math.min(viaA, viaB) + t.d;
+        if (!isFinite(d)) return null;
+        // Back-track node chain to the start edge.
+        const chain = [];
+        for (let v = endNode; prevEdge[v] >= 0;) {
+          const e = g.edges[prevEdge[v]], u = e.a === v ? e.b : e.a;
+          chain.push({ e, fwd: e.a === u });
+          v = u;
+          if (chain.length > g.edges.length) break;
+        }
+        chain.reverse();
+        const firstNode = chain.length ? (chain[0].fwd ? chain[0].e.a : chain[0].e.b) : endNode;
+        // Along the start edge to the first node.
+        xy.push(...(firstNode === se.a ? slice(se.pts, se.cum, 0, src.s).reverse() : slice(se.pts, se.cum, src.s, slen)));
+        addStreet(se.street);
+        for (const { e, fwd } of chain) { xy.push(...(fwd ? e.pts : [...e.pts].reverse())); addStreet(e.street); }
+        // Along the target edge to the target.
+        xy.push(...(endNode === te.a ? slice(te.pts, te.cum, 0, t.s) : slice(te.pts, te.cum, t.s, tlen).reverse()), t.p);
+        addStreet(te.street);
+        return { d, latlngs: xy.map(proj.toLL), streets };
+      }
+
+      // Walking distance to the nearest bit of each route, keyed by routeId.
+      function routeDistances() {
+        const out = {};
+        g.edges.forEach((e, i) => {
+          const rid = e.road >= 0 ? roads[e.road].routeId : null;
+          if (rid == null) return;
+          let d = Math.min(dist[e.a], dist[e.b]);
+          if (src && i === src.e) d = src.d;
+          if (!(rid in out) || d < out[rid]) out[rid] = d;
+        });
+        return out;
+      }
+
+      return { pathTo, routeDistances, snapM: src ? src.d : Infinity };
+    }
+
+    return { from };
+  }
+
+  return { plan, buildGraph, buildNetwork, baseName };
 })();
 
 if (typeof module !== 'undefined') module.exports = WalkOrder;
