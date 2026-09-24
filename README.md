@@ -110,7 +110,11 @@ beyond the current page session.
 | `js/pipeline.js` | Orchestrates a full ward build (single-hub or multi-hub) |
 | `js/mapData.js` | Assembles the final route payload from a clustering result |
 | `js/htmlApp.js` | Builds the downloadable/publishable app HTML |
-| `js/printSheets.js` | Printable route-sheet generator (browser print/PDF) |
+| `js/printSheets.js` | Printable route-sheet generator (browser print/PDF): Classic, or Walking directions (max two pages per route) |
+| `js/walkOrder.js` | Walking order for a route: each side of a road walked once, road on your left, walk-ins along real roads |
+| `js/routeDirections.js` | Adds walking directions to a built route payload, using every sheet row (plus any `###ROUTE_PLANNER_ONLY_BELOW###` network-only rows) as the walking network |
+| `js/directionsMap.js` | Draws walking directions on a Leaflet map; inlined into the published app and the print sheets |
+| `test.html` | Prototype/test bench for walking directions |
 | `js/auth.js` | Google Sign-In (Identity Services) |
 | `js/backend.js` | Talks to a ward's live leaflet-map Apps Script backend |
 | `js/publish.js` | Publishes to GitHub Pages + 14-day cleanup |

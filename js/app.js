@@ -69,7 +69,7 @@ async function loadRowsViaSheetsApi(url, accessToken) {
   return Sheets.fromValuesGrid(values.values || []);
 }
 
-function applyLoadedData({ rows, wards, missing, headerRow }) {
+function applyLoadedData({ rows, networkRows, wards, missing, headerRow }) {
   const banner = $('loadBanner');
   const issue = $('colMapIssue');
   if (missing && missing.length) {
@@ -82,6 +82,10 @@ function applyLoadedData({ rows, wards, missing, headerRow }) {
   if (!rows.length) { setBanner(banner, 'error', 'No rows found in that sheet.'); return; }
 
   state.rows = rows;
+  // No-homes roads below the sheet's ###ROUTE_PLANNER_ONLY_BELOW### marker:
+  // never route candidates, only used to route walking directions. Empty
+  // for a sheet without the marker.
+  state.networkRows = networkRows || [];
   state.wards = wards;
   setBanner(banner, 'ok', `Loaded ${rows.length} roads across ${wards.length} ward${wards.length === 1 ? '' : 's'}.`);
 
@@ -185,7 +189,7 @@ $('advancedToggle').onclick = () => $('advancedBody').classList.toggle('show');
 
 document.querySelectorAll('input[name=startMode]').forEach(r => {
   r.onchange = () => {
-    document.querySelectorAll('.radio-opt').forEach(o => o.classList.remove('active'));
+    r.closest('.radio-group').querySelectorAll('.radio-opt').forEach(o => o.classList.remove('active'));
     r.closest('.radio-opt').classList.add('active');
     $('manualStartFields').style.display = r.value === 'manual' ? 'block' : 'none';
     $('pubPickPanel').style.display = r.value === 'auto' ? 'block' : 'none';
@@ -338,6 +342,18 @@ $('buildBtn').onclick = async () => {
       logLine(log, `Done: ${payload.routes.length} routes.`);
     }
 
+    // Walking directions: the order to walk each route in (routes themselves
+    // are unchanged). Used by the app and the "walking directions" sheets; if
+    // it fails for any reason the build still stands, just without them.
+    try {
+      logLine(log, 'Planning walking directions…');
+      const dir = RouteDirections.addDirections(payload, state.rows, state.networkRows || []);
+      logLine(log, `Walking directions ready for ${dir.planned} of ${payload.routes.length} routes (walking network: ${dir.roadCount} roads).`);
+    } catch (e) {
+      console.error(e);
+      logLine(log, `⚠ Couldn't plan walking directions (${e.message}) -- the app and sheets will show the routes without them.`);
+    }
+
     state.ward = ward;
     state.payload = payload;
     renderReview(payload);
@@ -438,6 +454,11 @@ function currentAppUrl() {
 
 $('hostMyselfToggle').onclick = () => $('hostMyselfBody').classList.toggle('show');
 
+document.querySelectorAll('input[name=sheetStyle]').forEach(r => r.addEventListener('change', () => {
+  r.closest('.radio-group').querySelectorAll('.radio-opt').forEach(o => o.classList.remove('active'));
+  r.closest('.radio-opt').classList.add('active');
+}));
+
 $('downloadAppBtn').onclick = () => {
   if (!state.payload) return;
   downloadBlob(`${slugify(state.ward)}.html`, buildAppHtml());
@@ -446,6 +467,7 @@ $('downloadAppBtn').onclick = () => {
 $('downloadSheetsBtn').onclick = () => {
   if (!state.payload) return;
   const opts = currentClusterOpts();
+  opts.style = document.querySelector('input[name=sheetStyle]:checked').value;
   const html = PrintSheets.buildPrintableHtml(state.payload, state.ward, currentAppUrl(), opts);
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);

@@ -9,6 +9,7 @@
 <script src="js/walkOrder.js"></script>
 <script src="js/csv.js"></script>
 <script src="js/sheets.js"></script>
+<script src="js/directionsMap.js"></script>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; }
@@ -619,7 +620,15 @@ function splitRun(p) {
   return [p.slice(0, bestI), p.slice(bestI)];
 }
 
+// Same rule as the real print sheets (js/directionsMap.js): at most two
+// zoomed maps, and only when splitting clearly helps.
 function planPanels(legs) {
+  const shared = DirectionsMap.planPanels(legs, OVERVIEW, DETAIL);
+  return shared && shared.map((pn, i) => ({ ...pn, color: PANEL_COLORS[i % PANEL_COLORS.length] }));
+}
+
+// Previous up-to-four-maps version, kept for comparison (unused).
+function planPanelsUpToFour(legs) {
   if (crowdFrac(legs, OVERVIEW) <= CROWD_FRAC) return null;
   let parts = splitRun(legs); // crowded on one map, so at least two
   while (parts.length < MAX_PANELS) {

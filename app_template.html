@@ -14,7 +14,7 @@
     position:absolute;top:10px;right:10px;z-index:1000;
     background:white;border-radius:12px;
     box-shadow:0 3px 16px rgba(0,0,0,0.25);
-    min-width:250px;max-width:calc(100vw - 20px);
+    min-width:250px;max-width:min(400px, calc(100vw - 20px));
     overflow:hidden
   }
   .ctrl-header{
@@ -168,6 +168,26 @@
   .start-icon{width:20px;height:20px;background:#15181d;border:3px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.4)}
   .park-icon{width:15px;height:15px;border:2.5px solid white;border-radius:50%;box-shadow:0 2px 5px rgba(0,0,0,.4)}
   .leaflet-popup-content b{color:#111}
+
+  /* ── Walking directions (routes built with directions; see js/directionsMap.js) ── */
+  .leg-num{width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;color:#fff;font-size:10.5px;font-weight:800;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+  .leg-arrow{width:0;height:0;margin:-4px 0 0 -3px;border-top:4px solid transparent;border-bottom:4px solid transparent;border-left:7px solid #fff;transform-origin:3px 4px}
+  #info .dir-rule{font-size:12.5px;background:#eef4fe;color:#1a3d73;border-radius:8px;padding:8px 10px;line-height:1.5;margin:8px 0}
+  .dir-head{display:flex;justify-content:space-between;align-items:baseline;margin:12px 0 4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.04em;font-weight:700}
+  .dir-head span:last-child{text-transform:none;letter-spacing:0;font-weight:500}
+  .dir-list{list-style:none;margin:0;padding:0;border-top:1px solid #eee;max-height:40vh;overflow-y:auto}
+  .dir-step{display:grid;grid-template-columns:24px 1fr 30px;gap:8px;padding:8px 2px;border-bottom:1px solid #f2f2f2;cursor:pointer;align-items:start}
+  .dir-step.sel{background:#fff8e6}
+  .dir-num{width:22px;height:22px;border-radius:50%;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center}
+  .dir-street{font-size:13px;font-weight:700;color:#222}
+  .dir-side{font-weight:500;color:#777;font-size:11.5px}
+  .dir-cue{font-size:12px;color:#333;line-height:1.45;margin-top:1px}
+  .dir-meta{font-size:11px;color:#999;margin-top:2px}
+  .dir-tick{width:28px;height:28px;border-radius:50%;border:2px solid #d4d7db;background:#fff;color:#c0c4c9;font-size:13px;font-weight:800;cursor:pointer;padding:0}
+  .dir-step.done .dir-tick{background:#0a8a3a;border-color:#0a8a3a;color:#fff}
+  .dir-step.done .dir-street{text-decoration:line-through;color:#9aa0a6}
+  .dir-step.done .dir-cue{color:#9aa0a6}
+  .dir-finish{font-size:12px;color:#0a6a2a;background:#eaf7ee;padding:8px 10px}
 </style>
 </head><body>
 <div id="map"></div>
@@ -206,6 +226,9 @@
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/backend.js"></script>
+<script>
+/*__DIRECTIONS_MAP_JS__*/
+</script>
 <script>
 const DATA = __HTML_DATA__;
 // This ward's OWN live leaflet-map deployment -- reporting progress here
@@ -396,7 +419,7 @@ function applyRoadVisual(routeId, roadId) {
   const mark = roadMark(routeId, roadId); // null | "submitting" | "pending" | "done"
   let base;
   if (currentSel === 'all') base = {weight:6, opacity:0.75};
-  else { const active = routeId === currentSel; base = {weight: active?7:4, opacity: active?0.95:0.18}; }
+  else { const active = routeId === currentSel; base = activeRoadStyle(routeId, active); }
   layers.forEach(layer => {
     layer.setStyle(doneAdjust(base, mark));
     if (layer.getPopup()) layer.setPopupContent(popupHtmlForRoad(layer._roadData));
@@ -507,8 +530,101 @@ function refreshReportPanelIfActive(routeId) {
 
 let currentSel = 'all';
 
+/* ────────────────────────────────────────────
+   WALKING DIRECTIONS
+   Planned by the route planner when the routes were built (walking each
+   side of a road once, road on your left) and embedded per route as
+   DATA.routesMeta[id].directions. Pages published before this existed
+   have none, and show the plain route as before.
+   Step ticks are this phone's own checklist -- reporting roads done to
+   the live tracker is still the report panel below.
+──────────────────────────────────────────── */
+const dirLayer = L.layerGroup().addTo(map);
+let dirSel = null;
+
+function dirLegs(routeId) {
+  const d = routeId && routeId !== 'all' && DATA.routesMeta[routeId] && DATA.routesMeta[routeId].directions;
+  return typeof DirectionsMap !== 'undefined' && DirectionsMap && d ? d.legs : null;
+}
+function activeRoadStyle(routeId, active) {
+  if (!active) return {weight:4, opacity:0.18};
+  // The directions draw the route themselves; keep the road lines as a faint, tappable base.
+  return dirLegs(routeId) ? {weight:3, opacity:0.35} : {weight:7, opacity:0.95};
+}
+function stepsKey(routeId) { return 'lfp:steps:' + DATA.ward + ':' + routeId; }
+function doneSteps(routeId) {
+  try { return new Set(JSON.parse(localStorage.getItem(stepsKey(routeId))) || []); } catch (e) { return new Set(); }
+}
+function saveDoneSteps(routeId, set) { try { localStorage.setItem(stepsKey(routeId), JSON.stringify([...set])); } catch (e) {} }
+
+function redrawDirections() {
+  dirLayer.clearLayers();
+  const legs = dirLegs(currentSel);
+  if (!legs) return;
+  DirectionsMap.drawLegs(map, dirLayer, legs, {
+    sel: dirSel, done: doneSteps(currentSel), offsetPx: 4,
+    onPick: n => selectDirStep(n, false),
+  });
+}
+map.on('zoomend', redrawDirections);
+
+function escText(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function metresText(m) { return m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m / 10) * 10 + ' m'; }
+
+function directionsHtml(routeId) {
+  const d = DATA.routesMeta[routeId].directions;
+  const steps = d.legs.filter(l => l.type === 'leg');
+  const done = doneSteps(routeId);
+  let html = '<div class="dir-rule">Keep the <b>road on your left</b>, so traffic comes towards you. The letterboxes you\'re doing are on your <b>right</b>. Only cross where a step tells you to.</div>';
+  html += '<div class="dir-head"><span>Directions</span><span>' + done.size + ' of ' + steps.length + ' steps · ' + metresText(d.stats.walkM) + ' walk</span></div>';
+  html += '<ol class="dir-list" id="dirList">';
+  steps.forEach(l => {
+    const isDone = done.has(l.n);
+    html += '<li class="dir-step' + (l.n === dirSel ? ' sel' : '') + (isDone ? ' done' : '') + '" data-n="' + l.n + '" onclick="selectDirStep(' + l.n + ', true)">' +
+      '<div class="dir-num" style="background:' + (isDone ? '#9aa0a6' : DirectionsMap.legColor(l.n)) + '">' + l.n + '</div>' +
+      '<div><div class="dir-street">' + escText(l.street) + ' <span class="dir-side">· ' + escText(l.side) + (l.dir ? ' · walk ' + l.dir : '') + '</span></div>' +
+      '<div class="dir-cue">' + escText(l.cue) + '</div>' +
+      '<div class="dir-meta">' + (l.homes < 0.5 ? 'nothing to deliver' : '~' + Math.round(l.homes) + ' homes') + ' · ' + metresText(l.len) + '</div></div>' +
+      '<button class="dir-tick" aria-label="Step ' + l.n + ' done" onclick="event.stopPropagation(); toggleDirStep(' + l.n + ')">✓</button></li>';
+  });
+  const last = steps[steps.length - 1];
+  if (last && last.endCue) html += '<li class="dir-finish">🏁 ' + escText(last.endCue) + '</li>';
+  html += '</ol>';
+  return html;
+}
+function refreshDirectionsPanel() {
+  const el = document.getElementById('dirPanel');
+  if (!el || !dirLegs(currentSel)) return;
+  const list = document.getElementById('dirList');
+  const scroll = list ? list.scrollTop : 0;
+  el.innerHTML = directionsHtml(currentSel);
+  const again = document.getElementById('dirList');
+  if (again) again.scrollTop = scroll;
+}
+function selectDirStep(n, fly) {
+  dirSel = n;
+  refreshDirectionsPanel();
+  redrawDirections();
+  const leg = (dirLegs(currentSel) || []).find(l => l.n === n);
+  if (fly && leg) map.flyToBounds(L.latLngBounds(leg.latlngs), {padding:[60,60], maxZoom:18, duration:0.5});
+  const li = document.querySelector('.dir-step[data-n="' + n + '"]');
+  if (li) li.scrollIntoView({block:'nearest', behavior:'smooth'});
+}
+function toggleDirStep(n) {
+  const set = doneSteps(currentSel);
+  if (set.has(n)) set.delete(n); else set.add(n);
+  saveDoneSteps(currentSel, set);
+  // Ticking a step moves on to the next one still to do.
+  const next = set.has(n) && (dirLegs(currentSel) || []).find(l => l.type === 'leg' && l.n > n && !set.has(l.n));
+  if (next) { selectDirStep(next.n, true); return; }
+  refreshDirectionsPanel();
+  redrawDirections();
+}
+
 function show(g) {
   currentSel = g;
+  dirSel = null;
+  dirLayer.clearLayers();
   Object.values(groups).forEach(l => map.removeLayer(l));
   Object.values(parkMarkers).forEach(m => map.removeLayer(m));
   info.innerHTML = '';
@@ -530,12 +646,16 @@ function show(g) {
       const active = key === g;
       groups[key].eachLayer(layer => {
         const mark = roadMark(layer._roadData.routeId, layer._roadData.id);
-        layer.setStyle(doneAdjust({weight: active?7:4, opacity: active?0.95:0.18}, mark));
+        layer.setStyle(doneAdjust(activeRoadStyle(key, active), mark));
         if (active) layer.bringToFront();
       });
     });
     if (parkMarkers[g]) parkMarkers[g].addTo(map);
-    if (groupBounds[g] && groupBounds[g].length) map.fitBounds(groupBounds[g], {padding:[40,40]});
+    const legsForFit = dirLegs(g);
+    const hubForRoute = (DATA.hubs || []).find(h => h.id === DATA.routesMeta[g].hubId) || DATA.start;
+    const startForFit = DATA.routesMeta[g].marker ? [DATA.routesMeta[g].marker.point[1], DATA.routesMeta[g].marker.point[0]] : [hubForRoute.lat, hubForRoute.lon];
+    if (legsForFit) map.fitBounds(DirectionsMap.routeBounds(legsForFit, startForFit), {padding:[40,40]});
+    else if (groupBounds[g] && groupBounds[g].length) map.fitBounds(groupBounds[g], {padding:[40,40]});
 
     const meta = DATA.routesMeta[g];
     const streets = [...new Set(groupInfo[g].streets)].sort();
@@ -547,9 +667,11 @@ function show(g) {
       '<div class="difficulty">'+difficulty(meta.residences)+'</div>'+
       '<div class="hint"><b>Start/parking:</b> '+meta.startHint+'</div>'+
       (meta.notes ? '<div class="notes">'+meta.notes+'</div>' : '')+
-      '<div class="streets"><b>Streets:</b><br>'+streets.join(', ')+'</div>'+
+      (dirLegs(g) ? '<div id="dirPanel"></div>' : '<div class="streets"><b>Streets:</b><br>'+streets.join(', ')+'</div>')+
       '<div id="reportPanel"></div>';
     document.getElementById('reportPanel').innerHTML = buildReportPanelHtml(g);
+    refreshDirectionsPanel();
+    redrawDirections();
   }
 }
 

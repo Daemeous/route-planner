@@ -242,6 +242,16 @@
       <div class="hint" style="margin:4px 0 0">For a branch that can't get printed sheets or QR codes to people. With this on, whoever opens the app can pick and report on any route directly, no scanning needed.</div>
     </div>
 
+    <label>Printed sheet style</label>
+    <div class="radio-group" id="sheetStyleGroup">
+      <label class="radio-opt active"><input type="radio" name="sheetStyle" value="classic" checked>
+        <div><div class="radio-opt-label">Classic: one page per route</div><div class="radio-opt-desc">The route map, start point, street list and QR code.</div></div>
+      </label>
+      <label class="radio-opt"><input type="radio" name="sheetStyle" value="directions">
+        <div><div class="radio-opt-label">Walking directions: up to two pages per route</div><div class="radio-opt-desc">Numbered step-by-step directions with each side of the road drawn on the map, plus the QR code. Fits on one sheet printed double-sided, so it slips into a plastic wallet. Uses more paper than Classic.</div></div>
+      </label>
+    </div>
+
     <div class="btn-row">
       <button class="btn green" id="publishBtn">Publish to our shared site</button>
       <button class="btn green" id="downloadSheetsBtn">Download &amp; print route sheets</button>
@@ -297,6 +307,9 @@
 <script src="js/sheets.js"></script>
 <script src="js/tracker.js"></script>
 <script src="js/pipeline.js"></script>
+<script src="js/walkOrder.js"></script>
+<script src="js/routeDirections.js"></script>
+<script src="js/directionsMap.js"></script>
 <script src="js/htmlApp.js"></script>
 <script src="js/printSheets.js"></script>
 <script src="js/auth.js"></script>
