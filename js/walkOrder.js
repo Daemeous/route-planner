@@ -330,7 +330,20 @@ const WalkOrder = (() => {
 
     // Order components greedily from the start point.
     const done = new Set();
-    let here = startXY || g.nodes.find((_, v) => T.rot[v].length).p;
+    // No start given (someone heading out on their own, not from an event
+    // start): begin at the route's busiest junction -- most roads meeting,
+    // then most homes on them -- which is an easy place to find and meet at.
+    const defaultStart = () => {
+      let best = -1, bestScore = -1;
+      g.nodes.forEach((nd, v) => {
+        const deg = T.rot[v].length;
+        if (!deg) return;
+        const score = deg * 1e6 + T.rot[v].reduce((s, h) => s + g.edges[h >> 1].res, 0);
+        if (score > bestScore) { bestScore = score; best = v; }
+      });
+      return g.nodes[best].p;
+    };
+    let here = startXY || defaultStart();
     let firstApproach = null;
     while (done.size < nComp) {
       let best = null;
@@ -374,7 +387,9 @@ const WalkOrder = (() => {
         const where = names.length > 1 ? `the corner of ${names.slice(0, 2).join(' and ')}` : names[0];
         const lead = st.first && start.kind === 'parking' && start.label ? `Park on ${start.label}. ` : '';
         if (st.d > 25) {
-          const from = st.first && start.kind !== 'parking' && start.label ? `From ${start.label}, walk` : 'Walk';
+          const from = !st.first ? 'Walk'
+            : start.kind === 'me' ? 'From where you are, walk'
+            : start.kind !== 'parking' && start.label ? `From ${start.label}, walk` : 'Walk';
           pending.push(`${lead}${from} to ${where} (about ${Math.round(st.d / 10) * 10} m, nothing to deliver on the way).`);
           legs.push({ type: 'transfer', from: proj.toLL(st.fromXY), to: proj.toLL(g.nodes[st.toNode].p), d: st.d });
         } else if (st.first) {

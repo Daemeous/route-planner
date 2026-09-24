@@ -73,6 +73,18 @@
   /* ── Map decorations (both views) ── */
   .leg-num { width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%; color: #fff; font-size: 10.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
   .leg-arrow { width: 0; height: 0; margin: -4px 0 0 -3px; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 7px solid #fff; transform-origin: 3px 4px; }
+  .me-dot { background: #1a73e8; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 6px rgba(26,115,232,.25), 0 1px 4px rgba(0,0,0,.4); }
+  .flag-dot { background: #fff; border: 4px solid #15181d; border-radius: 50%; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+  .near { margin: 8px 0; border: 1px solid #e3e6ea; border-radius: 8px; overflow: hidden; }
+  .near-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #5b6470; padding: 7px 10px; background: #f6f7f8; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .near-head button { font: inherit; font-size: 12px; font-weight: 600; border: 0; border-radius: 6px; padding: 5px 10px; background: #1a73e8; color: #fff; cursor: pointer; text-transform: none; letter-spacing: 0; }
+  .near-item { display: flex; align-items: center; gap: 8px; width: 100%; font: inherit; font-size: 12.5px; text-align: left; border: 0; border-top: 1px solid #eef0f2; background: #fff; padding: 7px 10px; cursor: pointer; }
+  .near-item:hover { background: #fafafa; }
+  .near-item.on { background: #eef4fe; }
+  .near-item .sw { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .near-item .nm { flex: 1; }
+  .near-item .ds { color: #5b6470; white-space: nowrap; }
+  .near-empty { font-size: 12px; color: #5b6470; padding: 8px 10px; line-height: 1.5; border-top: 1px solid #eef0f2; }
   .start-dot { background: #15181d; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.2); }
 
   /* ── Print sheet (mirrors js/printSheets.js) ── */
@@ -115,6 +127,11 @@
   <h1>Walking directions <span>· prototype</span></h1>
   <select id="wardSel" aria-label="Ward"></select>
   <select id="routeSel" aria-label="Route"></select>
+  <select id="startSel" aria-label="Start from">
+    <option value="route">Start: route's own start point</option>
+    <option value="me">Start: my location</option>
+    <option value="event">Start: event start (pub)</option>
+  </select>
   <div class="spacer"></div>
   <div class="tabs" role="tablist">
     <button data-view="app" class="on">In the app</button>
@@ -139,6 +156,12 @@
           <li>A route that's a main road plus closes off it becomes <b>one continuous loop</b> that ends back where you started, with no road walked twice on the same side.</li>
           <li>Routes that go round a block need a few crossings to join the loops up. The route uses the fewest crossings it can, always at junctions, and each one is written into the directions.</li>
           <li>The line on the map is drawn on the side of the road you're on, so the two sides of a road show as two parallel lines with arrows going opposite ways.</li>
+        </ul>
+        <h3>Where a route starts</h3>
+        <ul>
+          <li><b>Route's own start</b> (default, for people going out on their own): drive routes start at their parking spot; others start at their busiest junction.</li>
+          <li><b>My location</b> uses your phone's GPS, or tap the map to pretend you're somewhere. It lists the nearest routes in every ward and starts the chosen one at the corner closest to you. This is a first step towards generating routes on the spot around wherever someone is.</li>
+          <li><b>Event start (pub)</b> is the action-day behaviour: every walk route sets off from the ward's pub.</li>
         </ul>
         <h3>Known gaps in this prototype</h3>
         <ul>
@@ -176,7 +199,7 @@ const KIND_LABEL = { walk: 'Walk', hybrid: 'Hybrid (drive + walk)', drive: 'Driv
 const TILE_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_32cj_1_90b7918b630fcb520359e0bc';
 const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
-const state = { ward: null, route: null, view: 'app', plan: null, sel: null, done: new Set() };
+const state = { ward: null, route: null, view: 'app', startMode: 'route', me: null, plan: null, sel: null, done: new Set() };
 let appMap = null, printMap = null;
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -196,9 +219,11 @@ function routeContext(wardKey, routeId) {
   const meta = d.routesMeta[routeId];
   const roads = d.roads.filter(r => r.routeId === routeId);
   const hub = (meta.hubId && d.hubs.find(h => h.id === meta.hubId)) || d.start;
-  const start = meta.marker
-    ? { latlng: [meta.marker.point[1], meta.marker.point[0]], label: meta.marker.label, kind: 'parking' }
-    : { latlng: [hub.lat, hub.lon], label: hub.label, kind: 'hub' };
+  const parking = meta.marker ? { latlng: [meta.marker.point[1], meta.marker.point[0]], label: meta.marker.label, kind: 'parking' } : null;
+  let start = null; // null = the planner picks the route's busiest junction
+  if (state.startMode === 'event') start = parking || { latlng: [hub.lat, hub.lon], label: hub.label, kind: 'hub' };
+  else if (state.startMode === 'me') start = state.me ? { latlng: state.me, label: 'where you are', kind: 'me' } : null;
+  else start = parking;
   const color = Colors.routeColors(Object.keys(d.routesMeta))[routeId];
   return { d, meta, roads, start, color };
 }
@@ -222,9 +247,10 @@ function readHash() {
   const ids = Object.keys(WARDS[state.ward].routesMeta);
   state.route = ids.includes(p.get('route')) ? p.get('route') : ids[0];
   state.view = p.get('view') === 'print' ? 'print' : 'app';
+  state.startMode = ['route', 'me', 'event'].includes(p.get('start')) ? p.get('start') : 'route';
 }
 function writeHash() {
-  history.replaceState(null, '', `#ward=${state.ward}&route=${state.route}&view=${state.view}`);
+  try { history.replaceState(null, '', `#ward=${state.ward}&route=${state.route}&view=${state.view}&start=${state.startMode}`); } catch (e) { /* e.g. sandboxed previews */ }
 }
 
 // ---- Map drawing (shared by the app and the print sheet) -------------------
@@ -294,11 +320,21 @@ function drawStatic(map, ctx, plan, { labels }) {
     L.polyline(l.latlngs, { color: '#15181d', weight: 2.5, opacity: 0.7, dashArray: '2 7', lineCap: 'round', interactive: false }).addTo(map.staticLayer);
   }
   const s = ctx.start;
-  const icon = s.kind === 'parking'
-    ? L.divIcon({ className: '', html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:${ctx.color};border:2.5px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.3)"></span>`, iconSize: [14, 14] })
-    : L.divIcon({ className: 'start-dot', iconSize: [14, 14] });
-  L.marker(s.latlng, { icon, keyboard: false }).addTo(map.staticLayer)
-    .bindTooltip(esc((s.kind === 'parking' ? 'Park: ' : 'Start: ') + s.label));
+  if (s) {
+    const icon = s.kind === 'parking'
+      ? L.divIcon({ className: '', html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:${ctx.color};border:2.5px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.3)"></span>`, iconSize: [14, 14] })
+      : s.kind === 'me' ? L.divIcon({ className: 'me-dot', iconSize: [16, 16] })
+      : L.divIcon({ className: 'start-dot', iconSize: [14, 14] });
+    L.marker(s.latlng, { icon, keyboard: false, bubblingMouseEvents: false }).addTo(map.staticLayer)
+      .bindTooltip(esc(s.kind === 'parking' ? 'Park: ' + s.label : s.kind === 'me' ? 'You are here' : 'Start: ' + s.label));
+  }
+  // Where the walking actually begins, if that's not already the marker above.
+  const first = plan.legs.find(l => l.type === 'leg');
+  const firstPt = first && first.latlngs[0];
+  if (firstPt && (!s || map.distance(firstPt, s.latlng) > 25)) {
+    L.marker(firstPt, { icon: L.divIcon({ className: 'flag-dot', iconSize: [14, 14] }), keyboard: false, bubblingMouseEvents: false })
+      .addTo(map.staticLayer).bindTooltip('Start walking here');
+  }
   if (labels) {
     // One label per street on the print sheet (tiles often skip small closes).
     const seen = new Set();
@@ -325,7 +361,7 @@ function drawLegs(map, plan, { sel = null, done = new Set(), offsetPx = 4, onPic
     const faded = sel != null && !isSel;
     const line = offsetLatLngs(map, l.latlngs, offsetPx);
     const pl = L.polyline(line, {
-      color, weight: isSel ? 6 : 4, opacity: faded ? 0.35 : 0.95, lineCap: 'round', lineJoin: 'round',
+      color, weight: isSel ? 6 : 4, opacity: faded ? 0.35 : 0.95, lineCap: 'round', lineJoin: 'round', bubblingMouseEvents: false,
     }).addTo(map.legLayer);
     if (onPick) pl.on('click', () => onPick(l.n));
     // Direction arrows every ~60px of screen length (at least one).
@@ -348,14 +384,14 @@ function drawLegs(map, plan, { sel = null, done = new Set(), offsetPx = 4, onPic
     const faded = sel != null && l.n !== sel;
     const m = L.marker(p.latlng, {
       icon: L.divIcon({ className: '', html: `<div class="leg-num" style="background:${color};opacity:${faded ? 0.55 : 1}">${l.n}</div>`, iconSize: [0, 0] }),
-      keyboard: false, zIndexOffset: l.n === sel ? 1000 : 0,
+      keyboard: false, zIndexOffset: l.n === sel ? 1000 : 0, bubblingMouseEvents: false,
     }).addTo(map.legLayer);
     if (onPick) m.on('click', () => onPick(l.n));
   }
 }
 
 function fitRoute(map, ctx, plan, pad) {
-  const pts = plan.legs.flatMap(l => l.latlngs).concat([ctx.start.latlng]);
+  const pts = plan.legs.flatMap(l => l.latlngs).concat(ctx.start ? [ctx.start.latlng] : []);
   map.fitBounds(L.latLngBounds(pts), { padding: [pad, pad] });
 }
 
@@ -375,9 +411,11 @@ function renderApp(ctx) {
       <span class="tag">${st.legs} steps</span>
       <span class="tag">${st.crossings} crossings</span>
     </div>
+    ${state.startMode === 'me' ? nearestHtml() : ''}
     <div class="rule">Keep the <b>road on your right</b>. The letterboxes you're doing are on your <b>left</b>. Only cross where a step tells you to.</div>
     <div class="progress"><span>${state.done.size} of ${legs.length} steps done</span><span>~${Math.round(doneHomes)} of ${Math.round(st.homes)} homes</span></div>`;
 
+  wireNearest();
   const list = document.getElementById('steps');
   list.innerHTML = legs.map(l => `
     <li class="step${state.sel === l.n ? ' sel' : ''}${state.done.has(l.n) ? ' done' : ''}" data-n="${l.n}">
@@ -430,6 +468,7 @@ function showApp(ctx) {
   if (!appMap) {
     appMap = makeMap('appMap', { interactive: true });
     appMap.on('zoomend', redrawAppLegs);
+    appMap.on('click', e => { if (state.startMode === 'me') setMe([e.latlng.lat, e.latlng.lng], true); });
   }
   appMap.invalidateSize();
   drawStatic(appMap, ctx, state.plan, { labels: false });
@@ -443,8 +482,9 @@ function showPrint(ctx) {
   const { meta, color, d } = ctx;
   const plan = state.plan, st = plan.stats;
   const legs = plan.legs.filter(l => l.type === 'leg');
-  const startLine = ctx.start.kind === 'parking'
-    ? `Park on ${esc(ctx.start.label)} (suggested, please use your own discretion). It's the coloured dot on the map.`
+  const startLine = !ctx.start ? `See step 1. The white dot on the map marks where to start walking.`
+    : ctx.start.kind === 'parking' ? `Park on ${esc(ctx.start.label)} (suggested, please use your own discretion). It's the coloured dot on the map.`
+    : ctx.start.kind === 'me' ? `From where you are (the blue dot on the map). Step 1 says where to walk to.`
     : `${esc(ctx.start.label)} (event start point). It's the black dot on the map.`;
   document.getElementById('sheet').innerHTML = `
     <div class="route-titlebar" style="background:${tint(color)}">
@@ -489,10 +529,76 @@ function showPrint(ctx) {
   drawLegs(printMap, plan, { offsetPx: 3.5 });
 }
 
+// ---- "My location": nearest routes across every ward --------------------
+// A first step towards the end goal: someone opens this wherever they are
+// and gets offered the closest routes, starting at the corner nearest them.
+function nearestRoutes(me, limit = 6) {
+  const here = L.latLng(me);
+  const out = [];
+  for (const [wk, d] of Object.entries(WARDS)) {
+    const colors = Colors.routeColors(Object.keys(d.routesMeta));
+    for (const m of Object.values(d.routesMeta)) {
+      let best = Infinity;
+      for (const r of d.roads) if (r.routeId === m.id) for (const seg of r.segments) for (const p of seg) {
+        const dm = here.distanceTo(p);
+        if (dm < best) best = dm;
+      }
+      out.push({ ward: wk, id: m.id, name: m.name, wardName: d.ward, homes: m.residences, color: colors[m.id], d: best });
+    }
+  }
+  return out.sort((a, b) => a.d - b.d).slice(0, limit);
+}
+
+function nearestHtml() {
+  const head = `<div class="near-head"><span>${state.me ? 'Nearest routes to you' : 'Routes near you'}</span><button id="gpsBtn">Use my GPS</button></div>`;
+  if (!state.me) {
+    return `<div class="near">${head}<div class="near-empty">Use GPS, or <b>tap anywhere on the map</b> to pretend you're standing there.</div></div>`;
+  }
+  const list = nearestRoutes(state.me);
+  return `<div class="near">${head}
+    ${list.map(r => `<button class="near-item${r.ward === state.ward && r.id === state.route ? ' on' : ''}" data-ward="${r.ward}" data-id="${r.id}">
+      <span class="sw" style="background:${r.color}"></span>
+      <span class="nm"><b>${esc(r.wardName)} ${esc(r.id)}</b> · ${esc(r.name)} · ${Math.round(r.homes)} homes</span>
+      <span class="ds">${metres(r.d)}</span></button>`).join('')}
+    <div class="near-empty">Tap the map to move your pretend location.</div></div>`;
+}
+
+function wireNearest() {
+  const gps = document.getElementById('gpsBtn');
+  if (gps) gps.addEventListener('click', () => {
+    if (!navigator.geolocation) { alert("This browser can't share its location."); return; }
+    gps.disabled = true; gps.textContent = 'Locating…';
+    navigator.geolocation.getCurrentPosition(
+      pos => setMe([pos.coords.latitude, pos.coords.longitude], true),
+      err => { alert('Could not get your location: ' + err.message); gps.disabled = false; gps.textContent = 'Use my GPS'; },
+      { enableHighAccuracy: true, timeout: 15000 });
+  });
+  document.querySelectorAll('.near-item').forEach(b => b.addEventListener('click', () => {
+    state.ward = b.dataset.ward; state.route = b.dataset.id;
+    document.getElementById('wardSel').value = state.ward;
+    fillRouteSelect();
+    resetRouteState();
+    render();
+  }));
+}
+
+// Setting a location jumps straight to the nearest route, like the real thing would.
+function setMe(latlng, jump) {
+  state.me = latlng;
+  const [nearest] = nearestRoutes(latlng, 1);
+  if (jump && nearest) {
+    state.ward = nearest.ward; state.route = nearest.id;
+    document.getElementById('wardSel').value = state.ward;
+    fillRouteSelect();
+  }
+  resetRouteState();
+  render();
+}
+
 // ---- Wiring ------------------------------------------------------------------
 function render() {
   const ctx = routeContext(state.ward, state.route);
-  state.plan = WalkOrder.plan({ roads: ctx.roads }, { start: ctx.start });
+  state.plan = WalkOrder.plan({ roads: ctx.roads }, { start: ctx.start || undefined });
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === state.view));
   document.getElementById('appView').hidden = state.view !== 'app';
   document.getElementById('printView').hidden = state.view !== 'print';
@@ -514,6 +620,8 @@ document.getElementById('wardSel').addEventListener('change', e => {
   fillRouteSelect();
   render();
 });
+document.getElementById('startSel').value = state.startMode;
+document.getElementById('startSel').addEventListener('change', e => { state.startMode = e.target.value; resetRouteState(); render(); });
 document.getElementById('routeSel').addEventListener('change', e => { state.route = e.target.value; resetRouteState(); render(); });
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => { state.view = b.dataset.view; render(); }));
 render();
