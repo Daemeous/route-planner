@@ -1,189 +1,521 @@
-<!DOCTYPE html><html><head>
+<!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<title>Route Sheet — Live Tile Basemap Test</title>
+<title>Walking Directions Test</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="js/colors.js"></script>
+<script src="js/walkOrder.js"></script>
 <style>
   * { box-sizing: border-box; }
-  body { font-family: 'Segoe UI', system-ui, sans-serif; color: #15181d; margin: 0; background: #e8e8e6; }
+  html, body { margin: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; color: #15181d; background: #e8e8e6; }
 
-  .banner { max-width: 210mm; margin: 16px auto 0; padding: 12px 16mm; font-size: 13px; line-height: 1.6; color: #444; }
-  .banner b { color: #15181d; }
-  .banner code { background: #fff; padding: 1px 5px; border-radius: 4px; }
+  /* ── Top bar ── */
+  .topbar { position: sticky; top: 0; z-index: 2000; background: #15181d; color: #fff; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 16px; }
+  .topbar h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: -.2px; }
+  .topbar h1 span { font-weight: 400; color: #9aa3ad; }
+  .topbar select { font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 6px; border: 1px solid #3a3f46; background: #23272d; color: #fff; max-width: 100%; }
+  .topbar .spacer { flex: 1; }
+  .tabs { display: flex; background: #23272d; border-radius: 8px; padding: 3px; }
+  .tabs button { font: inherit; font-size: 13px; font-weight: 600; border: 0; background: none; color: #9aa3ad; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+  .tabs button.on { background: #1a73e8; color: #fff; }
+  .print-btn { font: inherit; font-size: 13px; font-weight: 600; background: #1a73e8; color: #fff; border: 0; border-radius: 6px; padding: 7px 14px; cursor: pointer; }
+  .print-btn:disabled { background: #5b6470; cursor: default; }
 
-  /* -- everything below this line is copied from the real print sheet's
-     CSS (js/printSheets.js), with two deliberate changes from this round
-     of testing: .route-body now stacks the map above the info instead of
-     side-by-side (a full-width map makes far better use of an A4 page
-     than a half-width square did), and .route-info is a two-column grid
-     (text + QR) now that it has the full page width to work with. -- */
-  @page { size: A4; margin: 14mm; }
-  .sheet { background: white; width: 210mm; min-height: 297mm; margin: 0 auto 12px; padding: 16mm; page-break-after: always; }
-  @media print { body { background: white; } .sheet { margin: 0; box-shadow: none; } .no-print { display: none; } }
-  .route-titlebar { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-radius:10px; }
-  .route-id { font-size:22px; font-weight:800; }
-  .route-name { font-size:14px; font-weight:600; margin-top:2px; }
-  .route-subtitle { font-size:10px; color:#5b6470; margin-top:2px; }
-  .route-titlebar-right { text-align:right; }
-  .route-kind { font-size:13px; font-weight:700; }
-  .route-shape { font-size:11px; color:#5b6470; }
-  .route-res { font-size:11.5px; font-weight:700; margin-top:2px; }
-  .route-body { display:flex; flex-direction:column; gap:16px; margin-top:16px; }
-  .route-map { width:100%; border:1px solid #eee; border-radius:8px; overflow:hidden; aspect-ratio:2/1; }
-  .route-info { display:flex; gap:24px; align-items:flex-start; }
-  .route-info-main { flex:1; font-size:12px; line-height:1.6; }
-  .route-difficulty { font-style:italic; color:#5b6470; margin-bottom:8px; }
-  .route-map-note { font-size:9.5px; color:#8a8a85; font-style:italic; margin-bottom:8px; }
-  .route-hint { background:#f6f6f6; border-radius:8px; padding:8px 10px; margin-bottom:8px; }
-  .route-streets { font-size:11px; color:#444; }
-  .route-qr { flex:0 0 130px; text-align:center; }
-  .route-qr-placeholder { width:110px; height:110px; margin:0 auto; background:repeating-linear-gradient(45deg,#eee,#eee 4px,#fff 4px,#fff 8px); border:1px solid #ddd; border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:8px; color:#999; text-align:center; }
-  .route-qr-url { font-size:8.5px; color:#888; margin-top:4px; word-break:break-all; }
-  .print-bar { position:sticky; top:0; background:#15181d; color:white; padding:10px 16px; text-align:center; z-index:10; }
-  .print-bar button { background:#1a73e8; color:white; border:none; border-radius:6px; padding:8px 16px; font-size:13px; font-weight:600; cursor:pointer; }
-  /* -- end copied/adapted CSS -- */
+  /* ── Explainer ── */
+  .explain { max-width: 1100px; margin: 14px auto 0; padding: 0 16px; font-size: 13px; line-height: 1.6; color: #333; }
+  .explain details { background: #fff; border-radius: 10px; padding: 10px 16px; }
+  .explain summary { cursor: pointer; font-weight: 700; color: #15181d; }
+  .explain .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; margin-top: 8px; }
+  .explain h3 { font-size: 13px; margin: 6px 0 2px; }
+  .explain p, .explain ul { margin: 4px 0; }
+  .explain ul { padding-left: 18px; }
+  @media (max-width: 760px) { .explain .cols { grid-template-columns: 1fr; } }
 
-  #map { width: 100%; height: 100%; background: #fbfbf9; }
-  .start-dot { background:#15181d; border:2px solid white; border-radius:50%; box-shadow:0 0 0 1px rgba(0,0,0,.2); }
-  .road-label {
-    position: absolute; left: 0; top: 0;
-    white-space: nowrap;
-    font-size: 10px;
-    font-weight: 700;
-    color: #15181d;
-    text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
-    pointer-events: none;
+  /* ── App view ── */
+  #appView { max-width: 1100px; margin: 14px auto 24px; padding: 0 16px; }
+  .phone { display: grid; grid-template-columns: 1fr 380px; height: 78vh; min-height: 520px; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 3px 16px rgba(0,0,0,.15); }
+  #appMap { height: 100%; background: #fbfbf9; }
+  .panel { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid #eee; }
+  .panel-head { padding: 14px 16px 10px; border-bottom: 1px solid #eee; }
+  .route-badge { display: flex; align-items: center; gap: 8px; }
+  .route-swatch { width: 14px; height: 14px; border-radius: 4px; }
+  .route-num { font-size: 20px; font-weight: 800; letter-spacing: -.4px; }
+  .route-title { font-size: 13.5px; font-weight: 600; color: #333; margin: 2px 0 6px; }
+  .tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .tag { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 3px 8px; border-radius: 999px; background: #f0f0f0; color: #555; }
+  .rule { font-size: 12.5px; background: #eef4fe; color: #1a3d73; border-radius: 8px; padding: 8px 10px; line-height: 1.5; }
+  .progress { font-size: 12px; color: #5b6470; margin-top: 8px; display: flex; justify-content: space-between; }
+  .steps { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+  .step { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #f0f0f0; cursor: pointer; align-items: start; }
+  .step:hover { background: #fafafa; }
+  .step.sel { background: #fff8e6; }
+  .step.done .step-street, .step.done .step-cue { color: #9aa0a6; }
+  .step.done .step-street { text-decoration: line-through; }
+  .num { width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 11.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.15); }
+  .step-street { font-size: 14px; font-weight: 700; }
+  .step-side { font-weight: 500; color: #5b6470; font-size: 12.5px; }
+  .step-cue { font-size: 12.5px; color: #333; line-height: 1.45; margin-top: 2px; }
+  .step-meta { font-size: 11.5px; color: #8a8f96; margin-top: 3px; }
+  .step-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .step-dir { font-size: 11.5px; color: #5b6470; white-space: nowrap; }
+  .tick { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #d4d7db; background: #fff; color: #c0c4c9; font-size: 14px; font-weight: 800; cursor: pointer; }
+  .step.done .tick { background: #0a8a3a; border-color: #0a8a3a; color: #fff; }
+  .finish { padding: 12px 16px; font-size: 12.5px; color: #0a6a2a; background: #eaf7ee; }
+  @media (max-width: 820px) {
+    .phone { grid-template-columns: 1fr; grid-template-rows: 50vh auto; height: auto; }
+    .panel { border-left: 0; border-top: 1px solid #eee; }
+    .steps { max-height: 60vh; }
+  }
+
+  /* ── Map decorations (both views) ── */
+  .leg-num { width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%; color: #fff; font-size: 10.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+  .leg-arrow { width: 0; height: 0; margin: -4px 0 0 -3px; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 7px solid #fff; transform-origin: 3px 4px; }
+  .start-dot { background: #15181d; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.2); }
+
+  /* ── Print sheet (mirrors js/printSheets.js) ── */
+  #printView { padding: 14px 0 24px; }
+  @page { size: A4; margin: 10mm; }
+  .sheet { background: #fff; width: 210mm; min-height: 297mm; margin: 0 auto 12px; padding: 12mm 14mm; }
+  .route-titlebar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 10px; }
+  .route-id { font-size: 22px; font-weight: 800; }
+  .route-name { font-size: 14px; font-weight: 600; margin-top: 2px; }
+  .route-subtitle { font-size: 10px; color: #5b6470; margin-top: 2px; }
+  .route-titlebar-right { text-align: right; font-size: 11px; color: #5b6470; }
+  .route-kind { font-size: 13px; font-weight: 700; color: #15181d; }
+  .route-res { font-size: 11.5px; font-weight: 700; margin-top: 2px; color: #15181d; }
+  .route-map { width: 100%; border: 1px solid #eee; border-radius: 8px; overflow: hidden; aspect-ratio: 3/2; margin-top: 12px; }
+  #printMap { width: 100%; height: 100%; background: #fbfbf9; }
+  .map-key { font-size: 9.5px; color: #6b7178; font-style: italic; margin: 5px 2px 8px; }
+  .print-rule { font-size: 11.5px; background: #f6f6f6; border-radius: 8px; padding: 7px 10px; margin-bottom: 8px; line-height: 1.5; }
+  table.dirs { width: 100%; border-collapse: collapse; font-size: 10.5px; line-height: 1.4; }
+  table.dirs th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: #6b7178; border-bottom: 1.5px solid #15181d; padding: 3px 5px; }
+  table.dirs td { border-bottom: 1px solid #e6e6e6; padding: 4px 5px; vertical-align: top; }
+  table.dirs tr { break-inside: avoid; }
+  table.dirs .box { width: 14px; height: 14px; border: 1.5px solid #555; border-radius: 3px; }
+  table.dirs .num { width: 20px; height: 20px; font-size: 10px; box-shadow: none; }
+  table.dirs .st { font-weight: 700; }
+  table.dirs .sd { color: #5b6470; }
+  table.dirs .hm { text-align: right; white-space: nowrap; font-weight: 700; }
+  table.dirs .finish-row td { color: #0a6a2a; font-style: italic; }
+  .road-label { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 9.5px; font-weight: 700; color: #15181d; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; pointer-events: none; }
+
+  @media print {
+    body { background: #fff; }
+    .no-print, #appView { display: none !important; }
+    #printView { display: block !important; padding: 0; }
+    .sheet { margin: 0; width: auto; min-height: 0; padding: 0; }
+    .num, .leg-num, .route-titlebar { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
 </style></head><body>
 
-<div class="print-bar no-print"><button onclick="window.print()">Print / Save as PDF</button></div>
-
-<div class="banner no-print">
-  <b>Test: live OSM tiles + our own street labels, full-width layout.</b>
-  Same route-card content as a real printed route sheet
-  (<code>js/printSheets.js</code>), with three changes from this round:
-  <ol style="margin:6px 0 0; padding-left:20px;">
-    <li><code>.route-map</code> is a live Leaflet map on CARTO's
-    "Positron" tiles (light, low-detail, built on OpenStreetMap data)
-    instead of the hand-drawn schematic.</li>
-    <li>Each of the route's own roads gets a label drawn directly on it,
-    rotated to follow the road. This is deliberately <b>not</b> left to
-    the tile provider — CARTO/OSM tiles often don't label short
-    residential roads or cul-de-sacs at all at this zoom (try "The
-    Mews" from the streets list — a tile-only label would likely be
-    missing), whereas we already know every name and its exact geometry
-    from the route data, so we can guarantee it's labelled.</li>
-    <li>The map now spans the full page width with the rest of the
-    sheet stacked below it, rather than a half-width square next to a
-    text column — makes better use of an A4 page and leaves room for a
-    wider, more legible map.</li>
-  </ol>
-  The route/coordinates are still an <b>approximate stand-in</b> near
-  Blyth, Nottinghamshire, not verified real geometry.
-  <br><br>
-  <b>Known wrinkle if this goes further:</b> tiles load asynchronously,
-  so printing immediately on page load can catch the map mid-load with
-  blank/grey tiles — the real generator should wait for each map's
-  <code>load</code> event before enabling print.
+<div class="topbar no-print">
+  <h1>Walking directions <span>· prototype</span></h1>
+  <select id="wardSel" aria-label="Ward"></select>
+  <select id="routeSel" aria-label="Route"></select>
+  <div class="spacer"></div>
+  <div class="tabs" role="tablist">
+    <button data-view="app" class="on">In the app</button>
+    <button data-view="print">Printed sheet</button>
+  </div>
+  <button class="print-btn" id="printBtn" hidden onclick="window.print()">Print / Save as PDF</button>
 </div>
 
-<section class="sheet route-sheet">
-  <div class="route-titlebar" style="background:#f8dede">
-    <div class="route-titlebar-left">
-      <div class="route-id" style="color:#d64545">Route A</div>
-      <div class="route-name">Bawtry Road &amp; Sheffield Road</div>
-      <div class="route-subtitle">Blyth Ward · Leaflet Delivery Round Sheet</div>
-    </div>
-    <div class="route-titlebar-right">
-      <div class="route-kind">Walk</div>
-      <div class="route-shape">Out &amp; back</div>
-      <div class="route-res">346 estimated residences</div>
-    </div>
-  </div>
-  <div class="route-body">
-    <div class="route-map"><div id="map"></div></div>
-    <div class="route-info">
-      <div class="route-info-main">
-        <div class="route-difficulty">Very Hard</div>
-        <div class="route-map-note">Only deliver the streets listed below — other roads are shown for orientation only.</div>
-        <div class="route-hint"><b>Start/parking:</b> Angel Inn (event start point)</div>
-        <div class="route-streets"><b>Streets (8):</b><br>Bawtry Road, Blyth Hall, Nornay Close, Park Drive, Priory Close, Sheffield Road, The Mews, The Woodlands</div>
+<div class="explain no-print">
+  <details>
+    <summary>What this is testing, and how it differs from Patriot's routes</summary>
+    <div class="cols">
+      <div>
+        <h3>Patriot</h3>
+        <p>Splits a route into numbered legs ("4 · Fairfield Road · walk NW → · both sides"), with an arrowed, numbered line per leg on the map. Every leg assumes you do <b>both sides in one pass</b>, so you either zig-zag across the road the whole way or walk each close in and back out twice.</p>
+        <h3>This version</h3>
+        <p>Treats each side of a road as its own pavement and walks each one <b>once</b>. The rule is simple: <b>keep the road on your right, and the letterboxes you're doing are on your left.</b> Follow it round every corner and you go up one side of a close, cross at the end, and come back down the other. When you come back out onto the main road, you carry on along the side you were on.</p>
       </div>
-      <div class="route-qr">
-        <div class="route-qr-placeholder">QR code<br>(omitted<br>in this test)</div>
-        <div class="route-qr-url">https://daemeous.github.io/route-planner/bassetlaw-blyth.html#Azure</div>
+      <div>
+        <h3>How it's worked out</h3>
+        <ul>
+          <li>A route that's a main road plus closes off it becomes <b>one continuous loop</b> that ends back where you started, with no road walked twice on the same side.</li>
+          <li>Routes that go round a block need a few crossings to join the loops up. The route uses the fewest crossings it can, always at junctions, and each one is written into the directions.</li>
+          <li>The line on the map is drawn on the side of the road you're on, so the two sides of a road show as two parallel lines with arrows going opposite ways.</li>
+        </ul>
+        <h3>Known gaps in this prototype</h3>
+        <ul>
+          <li>Walks between separate parts of a route are drawn as <b>straight dashed lines</b>. They don't follow real roads yet.</li>
+          <li>We don't know which sides actually have houses or pavements, so homes are split 50/50 between the two sides.</li>
+          <li>The data is a frozen copy of the published Penkside, Littleworth and Baswich apps.</li>
+        </ul>
       </div>
     </div>
+  </details>
+</div>
+
+<div id="appView">
+  <div class="phone">
+    <div id="appMap"></div>
+    <div class="panel">
+      <div class="panel-head" id="panelHead"></div>
+      <ol class="steps" id="steps"></ol>
+    </div>
   </div>
-</section>
+</div>
+
+<div id="printView" hidden>
+  <section class="sheet" id="sheet"></section>
+</div>
 
 <script>
-// Approximate stand-in route near Blyth, Nottinghamshire — NOT verified
-// real road geometry. Split into named segments (unlike the earlier
-// version's single flat line) so each can carry its own label, matching
-// the shape route.roads[] actually has in the real app (name + geometry).
-const roads = [
-  { name: 'Bawtry Road', coords: [[53.3695, -1.0565], [53.3703, -1.0563], [53.3712, -1.0560]] },
-  { name: 'Sheffield Road', coords: [[53.3712, -1.0560], [53.3722, -1.0557], [53.3732, -1.0552], [53.3742, -1.0548]] },
-];
-const startPoint = [53.3690, -1.0570]; // "Angel Inn"
+// Frozen copies of the published ward apps' route payloads (street, homes and
+// geometry per road; route metadata). Regenerate by re-extracting `const DATA`
+// from stafford-*.html.
+const WARDS = {"penkside":{"ward":"Penkside","start":{"lat":52.787713,"lon":-2.116868,"label":"Royal Oak Inn"},"hubs":[{"id":null,"lat":52.787713,"lon":-2.116868,"label":"Royal Oak Inn"}],"routesMeta":{"A":{"id":"A","name":"Sidney Avenue & Peach Avenue","kind":"walk","shape":"out-and-back","residences":285,"marker":null,"hubId":null},"B":{"id":"B","name":"Exeter Street & Plant Crescent","kind":"walk","shape":"out-and-back","residences":309.8,"marker":null,"hubId":null},"C":{"id":"C","name":"Rosemary Avenue & Fennel Drive","kind":"drive","shape":"loop","residences":135,"marker":{"label":"Old Rickerscote Lane","point":[-2.104970080747028,52.779316462183566]},"hubId":null},"D":{"id":"D","name":"Meadow Road & Washington Drive","kind":"drive","shape":"loop","residences":277,"marker":{"label":"Savoureuse Drive","point":[-2.1016161,52.7926379]},"hubId":null},"E":{"id":"E","name":"Virginia Avenue & Romesco Way","kind":"drive","shape":"out-and-back","residences":213,"marker":{"label":"Virginia Avenue","point":[-2.1027455161977375,52.793761101541826]},"hubId":null},"F":{"id":"F","name":"Rickerscote Road & Rickerscote Avenue","kind":"drive","shape":"out-and-back","residences":247,"marker":{"label":"Rickerscote Road","point":[-2.1050803,52.783036]},"hubId":null},"G":{"id":"G","name":"Vauban Drive & Quantico Close","kind":"drive","shape":"out-and-back","residences":162,"marker":{"label":"Ferry Farm Drive","point":[-2.10481897436703,52.79320264701028]},"hubId":null},"H":{"id":"H","name":"St Peter's Gardens & School Lane","kind":"drive","shape":"loop","residences":276,"marker":{"label":"St Peter's Gardens","point":[-2.107398133591894,52.782068037129335]},"hubId":null}},"roads":[{"street":"Sidney Avenue","routeId":"A","res":175,"segments":[[[52.784894,-2.1066787],[52.7849248,-2.1068881],[52.7849323,-2.1069598],[52.7850746,-2.1078707],[52.7851062,-2.1080703],[52.7851399,-2.1083153],[52.7852371,-2.1089777],[52.7852992,-2.1090812]],[[52.7852992,-2.1090812],[52.7853779,-2.1091411],[52.7855829,-2.1091931],[52.7860085,-2.109283],[52.7865637,-2.109409],[52.786687,-2.1094369],[52.7868183,-2.1094666],[52.7868571,-2.1094753]],[[52.7868571,-2.1094753],[52.7871257,-2.109536],[52.787398,-2.1095976]],[[52.787398,-2.1095976],[52.7874388,-2.1096068],[52.7876653,-2.109667],[52.7878175,-2.1096924]],[[52.7878175,-2.1096924],[52.7879543,-2.1097289]],[[52.7879543,-2.1097289],[52.7881165,-2.1097522],[52.788183,-2.1097418]],[[52.788183,-2.1097418],[52.7882501,-2.1097325],[52.7883472,-2.1096947],[52.7884192,-2.1096606],[52.7886912,-2.1094596],[52.7889547,-2.109266],[52.7889852,-2.1091939],[52.7889923,-2.1091227]],[[52.7884281,-2.110256],[52.78818,-2.1103946],[52.7881228,-2.1104266],[52.787886,-2.1103515]],[[52.787886,-2.1103515],[52.7879543,-2.1097289]],[[52.788183,-2.1097418],[52.7881034,-2.109461],[52.7880514,-2.1094074],[52.7879703,-2.109402],[52.7878892,-2.1094396],[52.78786,-2.10952],[52.7878175,-2.1096924]],[[52.787886,-2.1103515],[52.7876073,-2.1102588],[52.7873539,-2.1101745]],[[52.7873539,-2.1101745],[52.787398,-2.1095976]],[[52.7873539,-2.1101745],[52.7870706,-2.1100868],[52.7868089,-2.1100082],[52.7868571,-2.1094753]],[[52.7851502,-2.1097754],[52.7852131,-2.1093143],[52.7852624,-2.1092349],[52.7852992,-2.1090812]]]},{"street":"Perrin Close","routeId":"A","res":33,"segments":[[[52.7849323,-2.1069598],[52.7847518,-2.1071553],[52.7846675,-2.1072695],[52.7846002,-2.1074189],[52.7845337,-2.1076356],[52.7844913,-2.1078679],[52.7844855,-2.1080868],[52.7844978,-2.1083359],[52.784528,-2.1086079],[52.7845985,-2.1090647]]]},{"street":"Peach Avenue","routeId":"A","res":77,"segments":[[[52.7881838,-2.1067955],[52.7874517,-2.1071085]],[[52.7874517,-2.1071085],[52.7871957,-2.1072187]],[[52.7871957,-2.1072187],[52.7861656,-2.1076375]],[[52.7861656,-2.1076375],[52.785852,-2.1077641]],[[52.785852,-2.1077641],[52.7851062,-2.1080703]],[[52.7861656,-2.1076375],[52.7861438,-2.1079],[52.7860919,-2.1079805],[52.7859947,-2.1080022],[52.7859524,-2.1079858],[52.785881,-2.1079054],[52.785852,-2.1077641]],[[52.7874517,-2.1071085],[52.7874513,-2.1072777],[52.7874318,-2.1073743],[52.7873838,-2.1074352],[52.7873377,-2.1074547],[52.7872826,-2.107444],[52.7872534,-2.1074279],[52.7872274,-2.1073796],[52.7872079,-2.1073206],[52.7871957,-2.1072187]]]},{"street":"Exeter Street","routeId":"B","res":148.8,"segments":[[[52.7948775,-2.1125923],[52.794792,-2.1125315]],[[52.794792,-2.1125315],[52.7944475,-2.1122868],[52.7941177,-2.112253],[52.7940776,-2.1122459]],[[52.7939813,-2.1121293],[52.7938969,-2.1125243],[52.7937409,-2.1128266]],[[52.7883634,-2.107629],[52.7883677,-2.1076471],[52.7883579,-2.1077312],[52.7883507,-2.1077798],[52.788326,-2.1078488],[52.7883238,-2.1079303],[52.7883309,-2.1080204],[52.788353,-2.1080837],[52.7883878,-2.108113],[52.7884539,-2.1081331],[52.7885051,-2.1081366],[52.7885497,-2.1081658],[52.7886297,-2.1083741],[52.7886815,-2.108509],[52.7887626,-2.1086663],[52.7889684,-2.1089856],[52.7889923,-2.1091227]],[[52.7889923,-2.1091227],[52.7890828,-2.1091524],[52.7891092,-2.1091879],[52.7894081,-2.1095436],[52.7896469,-2.1097762],[52.7897973,-2.1099506],[52.790246,-2.1103269],[52.7902742,-2.1103505],[52.7903702,-2.1104352],[52.7905585,-2.1105762],[52.7906892,-2.1106396],[52.7908189,-2.1107069],[52.7909265,-2.1107415],[52.790957,-2.1107534],[52.7910464,-2.1107884],[52.7911713,-2.1108372],[52.7913882,-2.110922],[52.791469,-2.1109536],[52.7916615,-2.1110294],[52.7917129,-2.111049],[52.7919764,-2.111152],[52.7920845,-2.1111943],[52.7921344,-2.1111806],[52.7921895,-2.1111137],[52.7925404,-2.1105909],[52.7925643,-2.1105837],[52.7926201,-2.1105669],[52.7926997,-2.1106101],[52.7931329,-2.1111259],[52.7939234,-2.1120531]],[[52.7945828,-2.1133222],[52.7946249,-2.1131629]],[[52.7946249,-2.1131629],[52.794792,-2.1125315]],[[52.7947162,-2.113229],[52.7946249,-2.1131629]],[[52.7939234,-2.1120531],[52.7939813,-2.1121293]],[[52.7940776,-2.1122459],[52.7939813,-2.1121293]]]},{"street":"Plant Crescent","routeId":"B","res":65,"segments":[[[52.7883309,-2.1080204],[52.787946,-2.108348],[52.7877521,-2.1084569],[52.787129,-2.1084864],[52.7867845,-2.1085271],[52.786744,-2.108856],[52.7867301,-2.1091243]],[[52.7867301,-2.1091243],[52.7867928,-2.1091912],[52.7868305,-2.1093206],[52.7868183,-2.1094666]],[[52.7867301,-2.1091243],[52.786639,-2.1091645],[52.7865867,-2.1092671],[52.7865637,-2.109409]]]},{"street":"Primrose Gardens","routeId":"B","res":35,"segments":[[[52.790597,-2.1100102],[52.7906555,-2.1098177],[52.7907171,-2.1096487],[52.7907203,-2.1095092],[52.7906814,-2.1093536],[52.7906132,-2.1092517]],[[52.790597,-2.1100102],[52.7905825,-2.110432],[52.7905585,-2.1105762]],[[52.7910124,-2.1098411],[52.790995,-2.1100838],[52.790597,-2.1100102]]]},{"street":"Unknown Road","routeId":"B","res":13,"segments":[[[52.7917979,-2.1099559],[52.7920848,-2.1100722]]]},{"street":"Meadow Way","routeId":"B","res":48,"segments":[[[52.7895507,-2.1044303],[52.7896008,-2.1045801],[52.7898949,-2.105459]]]},{"street":"Barbary Grange","routeId":"C","res":13,"segments":[[[52.7782841,-2.1055374],[52.7783509,-2.105809],[52.7783639,-2.1060196],[52.7784962,-2.1064697]]]},{"street":"Basil Close","routeId":"C","res":15,"segments":[[[52.7792638,-2.1053503],[52.7792655,-2.1055213],[52.7792441,-2.1056953],[52.7792459,-2.1060315]]]},{"street":"Fennel Drive","routeId":"C","res":29,"segments":[[[52.7797864,-2.1048207],[52.7798194,-2.1053907],[52.779786,-2.105577],[52.7797219,-2.1057285],[52.7796553,-2.1058576],[52.7794704,-2.105968],[52.7792459,-2.1060315],[52.7789954,-2.106188]]]},{"street":"Old Rickerscote Lane","routeId":"C","res":27,"segments":[[[52.7809356,-2.1048307],[52.7805693,-2.1047863],[52.780191,-2.1047913],[52.779993,-2.104806],[52.7797864,-2.1048207],[52.7795103,-2.1048811],[52.7786117,-2.1052936],[52.7782841,-2.1055374],[52.7780511,-2.10567],[52.777906,-2.1057517]]]},{"street":"Rickerscote Hall Lane","routeId":"C","res":18,"segments":[[[52.7810807,-2.1040727],[52.7810074,-2.103631],[52.7809297,-2.1033418],[52.7805878,-2.1021885],[52.7805014,-2.1019402],[52.7804332,-2.1018384],[52.7801218,-2.1013736]],[[52.7809356,-2.1048307],[52.7809587,-2.104367],[52.7810807,-2.1040727]],[[52.7812251,-2.1046652],[52.7811894,-2.1043756],[52.7810807,-2.1040727]]]},{"street":"Rosemary Avenue","routeId":"C","res":32,"segments":[[[52.7787158,-2.105561],[52.778871,-2.1058854],[52.778937,-2.106024],[52.7789954,-2.106188],[52.7792099,-2.1068203]]]},{"street":"Mosspit","routeId":"C","res":1,"segments":[[[52.774707,-2.1106015],[52.7748201,-2.1108225]],[[52.771214,-2.1083057],[52.7713259,-2.1083593],[52.7715923,-2.1085141],[52.7718452,-2.1086508],[52.7720851,-2.1088047],[52.7721078,-2.1088193],[52.7730508,-2.1095142],[52.7731867,-2.1095795],[52.7736294,-2.1098844]],[[52.7736294,-2.1098844],[52.7738037,-2.1099839],[52.7743815,-2.1102866],[52.7745233,-2.110376],[52.7746208,-2.1104816],[52.774707,-2.1106015]]]},{"street":"Batholdi Way","routeId":"D","res":17,"segments":[[[52.794291,-2.1009416],[52.7941138,-2.1006932],[52.7940233,-2.1005076],[52.7939476,-2.100157],[52.7938468,-2.0998809]]]},{"street":"Belfort Way","routeId":"D","res":7,"segments":[[[52.7921823,-2.1011462],[52.7921328,-2.1009784],[52.792083,-2.1008222]],[[52.7919563,-2.1009645],[52.792072,-2.101065],[52.7921823,-2.1011462]],[[52.7921823,-2.1011462],[52.7924785,-2.1016286]]]},{"street":"Catalan Close","routeId":"D","res":11,"segments":[[[52.7921488,-2.1023971],[52.7919135,-2.1021009],[52.7916746,-2.1019007]]]},{"street":"Daimler Close","routeId":"D","res":9,"segments":[[[52.7936229,-2.1001657],[52.7934928,-2.0997979],[52.7933,-2.0994229],[52.7932668,-2.0993811]]]},{"street":"Daurada Drive","routeId":"D","res":30,"segments":[[[52.7938468,-2.0998809],[52.7936229,-2.1001657],[52.7934193,-2.1003412],[52.7932499,-2.1005479],[52.7930391,-2.1008438]],[[52.7938468,-2.0998809],[52.7940252,-2.0996064],[52.7941071,-2.099487],[52.7941225,-2.0993831],[52.7941018,-2.0993214],[52.7940475,-2.0991987],[52.7938988,-2.0989338]]]},{"street":"Landstone Road","routeId":"D","res":9,"segments":[[[52.7931809,-2.1012519],[52.793095,-2.1012881],[52.792958,-2.101305],[52.7928574,-2.1013186],[52.7927698,-2.1013834],[52.792696,-2.1014796],[52.7926172,-2.1015812]]]},{"street":"Savoureuse Drive","routeId":"D","res":26,"segments":[[[52.7930391,-2.1008438],[52.7928948,-2.1005843],[52.7926718,-2.10027]],[[52.7931819,-2.1015763],[52.793188,-2.10141]],[[52.793188,-2.10141],[52.7931899,-2.1013579],[52.7931809,-2.1012519],[52.793151,-2.1011192],[52.7930391,-2.1008438]],[[52.7926339,-2.1002296],[52.7926718,-2.10027]],[[52.7926172,-2.1015812],[52.7925875,-2.1015568],[52.7925554,-2.1015507],[52.7925106,-2.1015744],[52.7924785,-2.1016286],[52.7924669,-2.1016795],[52.7924656,-2.1017148],[52.792473,-2.1017681],[52.7924988,-2.1018264],[52.7925267,-2.101854],[52.7925598,-2.1018645],[52.7925753,-2.1018627],[52.7926071,-2.1018441],[52.7926329,-2.101809],[52.7926497,-2.1017614],[52.7926552,-2.1017205],[52.7926521,-2.1016655],[52.7926379,-2.1016161],[52.7926172,-2.1015812]],[[52.7932694,-2.1014169],[52.793188,-2.10141]]]},{"street":"Tarragona Drive","routeId":"D","res":25,"segments":[[[52.7924988,-2.1018264],[52.7923948,-2.1019236],[52.7923376,-2.1019976],[52.7922873,-2.1020945],[52.7921488,-2.1023971],[52.7920797,-2.1025743],[52.7919456,-2.1028141],[52.7918626,-2.1029191],[52.7914989,-2.1032489]]]},{"street":"Tyria Way","routeId":"D","res":15,"segments":[[[52.7923009,-2.1033981],[52.7922454,-2.1033059],[52.7921971,-2.1032489],[52.7921473,-2.1032106],[52.7920178,-2.1031464],[52.7919561,-2.1030863],[52.7918626,-2.1029191]]]},{"street":"Washington Drive","routeId":"D","res":40,"segments":[[[52.7932305,-2.1024308],[52.7931517,-2.102463]],[[52.7931517,-2.102463],[52.7930815,-2.1025208],[52.7928914,-2.1027571],[52.7925726,-2.1030016],[52.7923009,-2.1033981],[52.791991,-2.1039995]],[[52.7931323,-2.1022712],[52.7931517,-2.102463]]]},{"street":"Meadow Court","routeId":"D","res":18,"segments":[[[52.7917982,-2.1045097],[52.7914319,-2.1039926],[52.7913652,-2.1040911],[52.7911677,-2.1044716]]]},{"street":"Meadow Road","routeId":"D","res":70,"segments":[[[52.7939024,-2.108495],[52.7937477,-2.1085339],[52.7936996,-2.1084787],[52.7934447,-2.1080224],[52.7933458,-2.1078366],[52.7932101,-2.1075816],[52.7931346,-2.1074399],[52.7926819,-2.1065437],[52.7925257,-2.1062545]],[[52.7925257,-2.1062545],[52.7923431,-2.1059484]],[[52.7923431,-2.1059484],[52.7922498,-2.1058107],[52.7921833,-2.1057045],[52.7915956,-2.1049011],[52.7913807,-2.1046448],[52.7911677,-2.1044716],[52.7906759,-2.1040799],[52.7905694,-2.1039879],[52.7904764,-2.1039059],[52.7904448,-2.1038706],[52.7904285,-2.1038523],[52.7903761,-2.1037499],[52.7903363,-2.1036197]],[[52.7923431,-2.1059484],[52.7923745,-2.1059082],[52.7924096,-2.1058769],[52.7924487,-2.1058626],[52.7924779,-2.10586],[52.7924848,-2.1058593],[52.792512,-2.1058727],[52.7925384,-2.1058931],[52.7925618,-2.1059364],[52.7925795,-2.1059819],[52.7925864,-2.106064],[52.7925829,-2.1061175],[52.7925685,-2.106173],[52.7925505,-2.1062154],[52.7925257,-2.1062545]],[[52.7939024,-2.108495],[52.7939353,-2.1085473],[52.793981,-2.108547],[52.7940137,-2.1084942],[52.7940149,-2.1084187],[52.7939961,-2.1083757],[52.7939667,-2.1083544],[52.7939349,-2.1083609],[52.7939094,-2.1083933],[52.7938975,-2.1084425],[52.7939024,-2.108495]]]},{"street":"Abbey Close","routeId":"E","res":23,"segments":[[[52.7945506,-2.1006388],[52.7947197,-2.1009677]]]},{"street":"Brent Close","routeId":"E","res":17,"segments":[[[52.7943442,-2.1016994],[52.7943029,-2.1016568]],[[52.7943029,-2.1016568],[52.7941665,-2.1015159],[52.7940935,-2.1014654]],[[52.7943536,-2.1015362],[52.7943029,-2.1016568]]]},{"street":"Lion Way","routeId":"E","res":13,"segments":[[[52.7929961,-2.1036507],[52.7925726,-2.1030016]]]},{"street":"Rhein Way","routeId":"E","res":16,"segments":[[[52.7940258,-2.1021369],[52.7939149,-2.1020995],[52.7938098,-2.102001],[52.7937239,-2.1019009]]]},{"street":"Virginia Avenue","routeId":"E","res":93,"segments":[[[52.7924122,-2.1047194],[52.7924672,-2.1046145]],[[52.7924672,-2.1046145],[52.7927699,-2.1040368]],[[52.7927699,-2.1040368],[52.7929961,-2.1036507],[52.793116,-2.1034896],[52.7932086,-2.1034192],[52.7934043,-2.1033157],[52.7934843,-2.1032394],[52.7935613,-2.1031255],[52.7939544,-2.1023779],[52.7940258,-2.1021369],[52.7940935,-2.1014654],[52.7941397,-2.1013037],[52.7942238,-2.1010692],[52.794291,-2.1009416],[52.7943613,-2.1008415],[52.7945506,-2.1006388],[52.7946204,-2.1005693],[52.7946934,-2.1004285],[52.7947997,-2.0999781]],[[52.7925362,-2.1047134],[52.7924672,-2.1046145]]]},{"street":"Hainer Close","routeId":"E","res":21,"segments":[[[52.7944227,-2.099808],[52.7944747,-2.0997393]],[[52.7944747,-2.0997393],[52.7945832,-2.0995958]],[[52.7945832,-2.0995958],[52.7947291,-2.0994146],[52.794923,-2.0990052],[52.794954,-2.0989397]],[[52.7945157,-2.099824],[52.7944747,-2.0997393]]]},{"street":"Queensville Bridge","routeId":"E","res":1,"segments":[[[52.7965684,-2.1011365],[52.7965265,-2.1010903],[52.7964895,-2.1010476],[52.796409,-2.1009172]],[[52.7952902,-2.0987896],[52.7951175,-2.0984765]],[[52.7966485,-2.1012195],[52.7966434,-2.1012145],[52.7965684,-2.1011365]]]},{"street":"Romesco Way","routeId":"E","res":29,"segments":[[[52.7947997,-2.0999781],[52.7945832,-2.0995958]],[[52.7950579,-2.1000977],[52.7949889,-2.1000657]],[[52.7949889,-2.1000657],[52.7947997,-2.0999781]],[[52.7949602,-2.1002206],[52.7949889,-2.1000657]]]},{"street":"Forest Drive","routeId":"F","res":17,"segments":[[[52.7841785,-2.1065419],[52.7840991,-2.1065562],[52.7840401,-2.1065616],[52.7839844,-2.1065562],[52.7839396,-2.1065381],[52.7838828,-2.1065056],[52.7838271,-2.1064623],[52.7837801,-2.1064225]]]},{"street":"Rickerscote Road","routeId":"F","res":135,"segments":[[[52.784087,-2.1097207],[52.7840264,-2.1091462],[52.7840161,-2.1088718],[52.7840164,-2.1086961],[52.7840301,-2.1085697],[52.7840444,-2.108354],[52.7841293,-2.1079826],[52.7842463,-2.1074226],[52.7843734,-2.1069824]],[[52.7841087,-2.1099745],[52.784087,-2.1097207]],[[52.7843734,-2.1069824],[52.7842784,-2.1068657],[52.7842609,-2.106838],[52.784242,-2.1068105],[52.7842206,-2.1067652],[52.7842013,-2.1067072],[52.7841785,-2.1065419],[52.7840712,-2.1057627],[52.784051,-2.1056775],[52.7840231,-2.1055857],[52.7840024,-2.1055495],[52.7835231,-2.1051256],[52.7834493,-2.1050757],[52.7833457,-2.1050504],[52.783036,-2.1050803],[52.7826006,-2.105161]],[[52.7826006,-2.105161],[52.7824726,-2.1051961],[52.7820838,-2.1052447],[52.7819448,-2.1052442],[52.7818716,-2.1052372],[52.781798,-2.1052125],[52.7816737,-2.1051573],[52.7814992,-2.1050478],[52.7813725,-2.1049835],[52.7813044,-2.1049753],[52.7812646,-2.1049813],[52.7812325,-2.1050102],[52.7812146,-2.1049466],[52.7811983,-2.104901],[52.781162,-2.1048565],[52.7811075,-2.1048326],[52.7809356,-2.1048307]]]},{"street":"Prospect Place","routeId":"F","res":21,"segments":[[[52.7833457,-2.1050504],[52.7833844,-2.1046895],[52.7834262,-2.1043024],[52.7834039,-2.1037633]]]},{"street":"Rickerscote Avenue","routeId":"F","res":54,"segments":[[[52.7840024,-2.1055495],[52.784073,-2.1053614],[52.784133,-2.1052962],[52.7842531,-2.1052364],[52.7843835,-2.1051981],[52.78478,-2.1050953],[52.7852367,-2.1049703],[52.7857124,-2.1047828],[52.7862219,-2.1046153],[52.7863901,-2.104569]]]},{"street":"The Rockeries","routeId":"F","res":20,"segments":[[[52.7843835,-2.1051981],[52.7843836,-2.1050298],[52.7843866,-2.1048075],[52.784352,-2.1046304],[52.7842039,-2.1044586]]]},{"street":"Ferry Farm Drive","routeId":"G","res":21,"segments":[[[52.7928883,-2.1053773],[52.7932488,-2.104737],[52.7934708,-2.1043426]]]},{"street":"Jupiter Way","routeId":"G","res":18,"segments":[[[52.7932488,-2.104737],[52.7929521,-2.1043032],[52.7927699,-2.1040368]]]},{"street":"Kamienna Close","routeId":"G","res":17,"segments":[[[52.7928883,-2.1053773],[52.793034,-2.1054876],[52.7933023,-2.1058839]]]},{"street":"Quantico Close","routeId":"G","res":27,"segments":[[[52.7939444,-2.1048909],[52.7937391,-2.1052504]],[[52.7937391,-2.1052504],[52.7937398,-2.105364]],[[52.793669,-2.1052213],[52.7935383,-2.1050995]],[[52.7937391,-2.1052504],[52.793669,-2.1052213]]]},{"street":"Vauban Court","routeId":"G","res":12,"segments":[[[52.7934708,-2.1043426],[52.7936904,-2.1039513]]]},{"street":"Vauban Drive","routeId":"G","res":67,"segments":[[[52.7934708,-2.1043426],[52.7937321,-2.1047073],[52.7939444,-2.1048909],[52.7940755,-2.1051693],[52.7942307,-2.1053328],[52.794322,-2.1054643],[52.7943859,-2.105595],[52.7944698,-2.1056969]]]},{"street":"St Peter's Close","routeId":"H","res":43,"segments":[[[52.7825596,-2.1086946],[52.7826481,-2.1088825],[52.7828174,-2.1092421],[52.7836954,-2.1092499]],[[52.7836983,-2.1097453],[52.7836954,-2.1092499]]]},{"street":"St Peter's Gardens","routeId":"H","res":111,"segments":[[[52.7819133,-2.108698],[52.7819207,-2.1076034],[52.7819224,-2.1074231],[52.7819408,-2.1074079]],[[52.7819408,-2.1074079],[52.7819758,-2.1073993],[52.7825847,-2.1073916]],[[52.7825847,-2.1073916],[52.7825874,-2.1078079],[52.7825789,-2.1086267],[52.7825596,-2.1086946]],[[52.7806353,-2.1086899],[52.7806742,-2.1088041],[52.7807506,-2.1088677],[52.7808747,-2.1088691],[52.7816898,-2.1087344],[52.7819133,-2.108698]],[[52.7825596,-2.1086946],[52.782531,-2.1087071],[52.7819133,-2.108698]],[[52.7825847,-2.1073916],[52.7825911,-2.1064941],[52.7825932,-2.1061925],[52.7825974,-2.1056168]],[[52.7825974,-2.1056168],[52.7826006,-2.105161]],[[52.7830388,-2.1056148],[52.7825974,-2.1056168]],[[52.7815204,-2.1070524],[52.7818243,-2.1070917],[52.7818554,-2.1071155],[52.781904,-2.1071984],[52.7819408,-2.1074079]]]},{"street":"School Lane","routeId":"H","res":65,"segments":[[[52.7796718,-2.1099025],[52.7796754,-2.1100379]],[[52.7812325,-2.1050102],[52.7811994,-2.1050949],[52.7811598,-2.1054975],[52.7811093,-2.1061241],[52.7810629,-2.1065841],[52.7810117,-2.1070094],[52.7809709,-2.1072685],[52.7808546,-2.1080462],[52.7808063,-2.1082516],[52.7807479,-2.1084609],[52.7806353,-2.1086899],[52.7802619,-2.1088951],[52.7799643,-2.1090344],[52.7798791,-2.1091029],[52.7798116,-2.1092301],[52.7797322,-2.1094618],[52.7796828,-2.1096526],[52.7796752,-2.1097528],[52.7796718,-2.1099025]]]},{"street":"School Lane Close","routeId":"H","res":11,"segments":[[[52.7811093,-2.1061241],[52.780414,-2.1059257]]]},{"street":"The Brandons","routeId":"H","res":20,"segments":[[[52.7810117,-2.1070094],[52.7810936,-2.1070442],[52.7811756,-2.1071045],[52.7811969,-2.1071963],[52.7811461,-2.1077799]]]},{"street":"Church Close","routeId":"H","res":11,"segments":[[[52.7825874,-2.1078079],[52.782647,-2.1078095],[52.7832347,-2.1078258]]]},{"street":"Hinton Close","routeId":"H","res":15,"segments":[[[52.7825911,-2.1064941],[52.7826494,-2.1064947],[52.7832411,-2.1065008]]]}]},"littleworth":{"ward":"Littleworth","start":{"lat":52.8130603,"lon":-2.0839455,"label":"The Lounge"},"hubs":[{"id":null,"lat":52.8130603,"lon":-2.0839455,"label":"The Lounge"}],"routesMeta":{"A":{"id":"A","name":"Longhurst Drive & Kingston Avenue","kind":"walk","shape":"loop","residences":289,"marker":null,"hubId":null},"B":{"id":"B","name":"Dartmouth Street & St. Thomas Street","kind":"walk","shape":"out-and-back","residences":160,"marker":null,"hubId":null},"C":{"id":"C","name":"Tixall Road & Avon Rise","kind":"walk","shape":"loop","residences":396,"marker":null,"hubId":null},"D":{"id":"D","name":"Wolseley Road & Hatherton Street","kind":"walk","shape":"out-and-back","residences":169.6,"marker":null,"hubId":null},"E":{"id":"E","name":"Tixall Road & Harrowby Street","kind":"walk","shape":"out-and-back","residences":245.4,"marker":null,"hubId":null},"F":{"id":"F","name":"Colwich Crescent & Birkdale Drive","kind":"walk","shape":"out-and-back","residences":236,"marker":null,"hubId":null},"G":{"id":"G","name":"Cowan Drive & John Street","kind":"walk","shape":"out-and-back","residences":168,"marker":null,"hubId":null},"H":{"id":"H","name":"Unknown Road & Lammascote Road","kind":"walk","shape":"out-and-back","residences":176,"marker":null,"hubId":null},"I":{"id":"I","name":"Mynors Street & Bedford Avenue","kind":"walk","shape":"out-and-back","residences":285,"marker":null,"hubId":null},"J":{"id":"J","name":"Riverway & Fairway","kind":"hybrid","shape":"out-and-back","residences":212,"marker":{"label":"Fairway","point":[-2.1019678105416895,52.804836242464006]},"hubId":null},"K":{"id":"K","name":"Gladstone Way & Canberra Drive","kind":"hybrid","shape":"loop","residences":232,"marker":{"label":"Gladstone Way","point":[-2.0898956,52.8139851]},"hubId":null}},"roads":[{"street":"Alliss Close","routeId":"A","res":21,"segments":[[[52.8106676,-2.0903713],[52.8106108,-2.0903648],[52.8105306,-2.0903451],[52.8104787,-2.0903252],[52.8104451,-2.0903051],[52.8104096,-2.0902717],[52.8103681,-2.0901954],[52.8103396,-2.0901121],[52.810332,-2.0900579],[52.8103183,-2.089934],[52.8103412,-2.0896056],[52.8103564,-2.0893996],[52.8102718,-2.0892787]]]},{"street":"Longhurst Drive","routeId":"A","res":70,"segments":[[[52.8095488,-2.0881071],[52.8095861,-2.0880721],[52.8096336,-2.0880374],[52.8096943,-2.0880069],[52.8097536,-2.0879938],[52.8098034,-2.0879933],[52.8098581,-2.0880067],[52.809914,-2.0880359],[52.8099705,-2.0880743],[52.8100179,-2.088129],[52.8100549,-2.088184],[52.8100828,-2.0882431],[52.8101108,-2.0883209],[52.8101289,-2.0883777],[52.8101627,-2.0884345],[52.810204,-2.0884862],[52.8102701,-2.0885373]],[[52.8095488,-2.0881071],[52.8095138,-2.0881596],[52.809477,-2.0882352],[52.8094414,-2.0883421],[52.8093955,-2.0885237],[52.8093453,-2.0887916],[52.8092701,-2.0891668],[52.8092203,-2.0894347],[52.8091839,-2.0896016],[52.8091265,-2.0898699],[52.8091124,-2.0900103],[52.8091094,-2.0901571],[52.8091213,-2.090401],[52.8091363,-2.0905884],[52.8091631,-2.0907169],[52.8091937,-2.090814],[52.8092668,-2.0909477],[52.8093413,-2.0910379],[52.8094023,-2.0910862],[52.809471,-2.0911167],[52.8095405,-2.0911244],[52.8096221,-2.0911146],[52.809724,-2.0910731],[52.8098463,-2.0909892],[52.8099359,-2.0908789],[52.8100039,-2.0907711],[52.8100639,-2.0906165],[52.810151,-2.0903345],[52.8101924,-2.090225]],[[52.8101924,-2.090225],[52.8102583,-2.0901511],[52.8103396,-2.0901121]]]},{"street":"Palmer Close","routeId":"A","res":26,"segments":[[[52.809471,-2.0911167],[52.8094377,-2.09138],[52.8094293,-2.0915871],[52.8094305,-2.0919175],[52.80909,-2.09195]]]},{"street":"Panton Close","routeId":"A","res":19,"segments":[[[52.8098463,-2.0909892],[52.8099349,-2.0912428],[52.8099975,-2.0914822],[52.8100155,-2.0916039],[52.8100269,-2.0917443],[52.8100336,-2.0918972]]]},{"street":"Snead Close","routeId":"A","res":21,"segments":[[[52.8096827,-2.0898509],[52.8094137,-2.0900664],[52.8093517,-2.0901051],[52.8092778,-2.090132],[52.8091094,-2.0901571]],[[52.8096827,-2.0898509],[52.8097422,-2.0898187],[52.8097963,-2.089819],[52.8098415,-2.0898263]]]},{"street":"Lema Way","routeId":"A","res":26,"segments":[[[52.8091839,-2.0896016],[52.8090701,-2.0895451],[52.8090219,-2.0895311],[52.8089652,-2.0895277],[52.8088908,-2.0895486],[52.8085985,-2.0896653],[52.808618,-2.0905593],[52.8086041,-2.0906493],[52.8085877,-2.0907063]]]},{"street":"Locke Way","routeId":"A","res":29,"segments":[[[52.8088675,-2.0912327],[52.8088074,-2.0912068],[52.8086445,-2.0912231]],[[52.8091937,-2.090814],[52.8090784,-2.0909255],[52.8089894,-2.0910128],[52.8089281,-2.0910926],[52.8088877,-2.0911718],[52.8088675,-2.0912327]],[[52.8088675,-2.0912327],[52.8088468,-2.0913219],[52.8088201,-2.0915082],[52.8087645,-2.0918644],[52.8086949,-2.0918625],[52.8084752,-2.0918842]]]},{"street":"Morris Drive","routeId":"A","res":38,"segments":[[[52.8076987,-2.087748],[52.8077851,-2.0877485],[52.8078608,-2.0877401],[52.8079697,-2.0877213],[52.8080375,-2.0877085],[52.808142,-2.087707],[52.8082238,-2.0876992],[52.8083118,-2.0876873],[52.8083966,-2.0876557],[52.8085354,-2.0875811],[52.808625,-2.0875386],[52.8087009,-2.0875147],[52.8087819,-2.0874961],[52.8088803,-2.0874968],[52.8090011,-2.0875157],[52.8091237,-2.087553],[52.809224,-2.0876098],[52.8093456,-2.0877042],[52.8093947,-2.0877654],[52.8094464,-2.0878521],[52.8094979,-2.0879794],[52.8095488,-2.0881071]]]},{"street":"Kingston Avenue","routeId":"A","res":39,"segments":[[[52.8101965,-2.0934911],[52.8101032,-2.0934172],[52.8100202,-2.0933598],[52.8097207,-2.093144],[52.8096644,-2.0931061],[52.8096332,-2.0930976],[52.8095818,-2.0930925],[52.8090892,-2.0931068],[52.8087427,-2.0931082],[52.8087199,-2.0931015],[52.8086963,-2.0930819],[52.808569,-2.0928896]]]},{"street":"Crossway","routeId":"B","res":46,"segments":[[[52.8064746,-2.1027392],[52.8064626,-2.1013999],[52.8064537,-2.1001926]]]},{"street":"Dartmouth Street","routeId":"B","res":65,"segments":[[[52.8046345,-2.100931],[52.8053669,-2.1005897],[52.8060718,-2.1002507],[52.8061724,-2.1002109],[52.8062734,-2.100194],[52.8064537,-2.1001926],[52.8067684,-2.1001887],[52.8071659,-2.100173]]]},{"street":"St. Thomas Street","routeId":"B","res":49,"segments":[[[52.8079795,-2.1005331],[52.8078468,-2.1004051],[52.807672,-2.100282],[52.8075928,-2.1002373],[52.8075106,-2.1002026],[52.8074492,-2.1001853],[52.8072283,-2.1001757],[52.8071659,-2.100173]]]},{"street":"Avon Rise","routeId":"C","res":75,"segments":[[[52.806217,-2.0896917],[52.8061741,-2.0897763],[52.8056766,-2.0908507]],[[52.8075001,-2.0946214],[52.8075136,-2.0946041],[52.8075271,-2.094571],[52.807534,-2.0945202],[52.8075368,-2.0944296],[52.8075319,-2.0943192],[52.8074701,-2.0933466],[52.8074725,-2.0932959],[52.8074794,-2.093261],[52.8074929,-2.0932322]],[[52.8074929,-2.0932322],[52.8074472,-2.0931241],[52.8074025,-2.0929131],[52.8073723,-2.0927071]],[[52.8080268,-2.0914574],[52.8071805,-2.0914291],[52.807106,-2.0914108],[52.8070554,-2.0913756],[52.8067533,-2.0906666],[52.8064082,-2.0900069],[52.806217,-2.0896917]],[[52.8074929,-2.0932322],[52.8075115,-2.0932032],[52.8075327,-2.0931786],[52.8075733,-2.0931575],[52.8079152,-2.0930833],[52.8079441,-2.0924863],[52.8079738,-2.0921596],[52.8080212,-2.091691],[52.8080268,-2.0914574]]]},{"street":"Clifton Close","routeId":"C","res":16,"segments":[[[52.8075368,-2.0944296],[52.8079497,-2.0943542],[52.8080268,-2.0948157],[52.8081513,-2.0955775]]]},{"street":"Clifton Drive","routeId":"C","res":40,"segments":[[[52.8067674,-2.0946219],[52.806911,-2.0946139],[52.8072837,-2.0946377],[52.8074509,-2.0946436],[52.8074824,-2.094634],[52.8075001,-2.0946214],[52.8075491,-2.0946835],[52.807571,-2.0947339],[52.8075817,-2.094781],[52.8077964,-2.0960782]]]},{"street":"Copper Glade","routeId":"C","res":40,"segments":[[[52.8079956,-2.0969052],[52.8079772,-2.0967349]],[[52.8092159,-2.0963008],[52.8091665,-2.0962658],[52.809099,-2.0962177],[52.8090326,-2.0961825],[52.8089571,-2.0961775],[52.8088727,-2.09618],[52.8086143,-2.0962037],[52.8085457,-2.0962393],[52.8084884,-2.0962912],[52.8084072,-2.0964649],[52.8083373,-2.096644],[52.808275,-2.0967353],[52.8082008,-2.0967939],[52.8081233,-2.0968427],[52.8079956,-2.0969052]],[[52.8079956,-2.0969052],[52.8080134,-2.0970753]]]},{"street":"Coton Avenue","routeId":"C","res":18,"segments":[[[52.8095557,-2.0953255],[52.8094937,-2.0952657],[52.8092197,-2.0949917],[52.8091546,-2.0949379],[52.8090799,-2.0948831],[52.8090017,-2.0948363],[52.8089362,-2.0948099],[52.808866,-2.0947895],[52.8084728,-2.094747]]]},{"street":"Tixall Road (part 2)","routeId":"C","res":63.2,"segments":[[[52.8056766,-2.0908507],[52.8058142,-2.0909971],[52.8059,-2.0911028],[52.8059853,-2.0912466],[52.8060942,-2.0914619],[52.8061723,-2.0916326],[52.8062398,-2.0918229],[52.8063104,-2.0920846],[52.8065027,-2.0929288],[52.8065978,-2.0933753],[52.806649,-2.0936982],[52.8066977,-2.0940521],[52.8067674,-2.0946219]]]},{"street":"Avon Close","routeId":"C","res":18,"segments":[[[52.807986,-2.0899325],[52.8080079,-2.0897965]],[[52.8080268,-2.0914574],[52.8080298,-2.0912795],[52.807986,-2.0899325]]]},{"street":"Avon Hill","routeId":"C","res":15,"segments":[[[52.8067533,-2.0906666],[52.8069684,-2.0904056],[52.8070174,-2.0903731],[52.8070605,-2.0903614],[52.8071002,-2.0903651],[52.807196,-2.0903916],[52.807265,-2.0904097],[52.8076549,-2.0903653]]]},{"street":"Tixall Road (part 1)","routeId":"C","res":110.9,"segments":[[[52.8057588,-2.0846459],[52.8057097,-2.0846811],[52.8056676,-2.0847212],[52.8055275,-2.0848776],[52.8054616,-2.0849611],[52.8053635,-2.0851025],[52.8052733,-2.0852613],[52.8051899,-2.0854425],[52.8051031,-2.0856874],[52.8050579,-2.085826],[52.8050022,-2.0859956],[52.8049458,-2.0862127],[52.8048651,-2.0865194],[52.8047917,-2.0868974],[52.804739,-2.0872482],[52.8046965,-2.0876453],[52.8046676,-2.088131],[52.8046695,-2.0885826],[52.8046874,-2.0888583],[52.804721,-2.0892051],[52.8047723,-2.0894925],[52.8048561,-2.0897612],[52.8049669,-2.0900476],[52.8050954,-2.0902702],[52.8052304,-2.0904446],[52.8054658,-2.0906617],[52.8056766,-2.0908507]]]},{"street":"Hatherton Street","routeId":"D","res":56,"segments":[[[52.8071911,-2.1027127],[52.8067912,-2.1027219]],[[52.8067912,-2.1027219],[52.8064746,-2.1027392],[52.8063654,-2.1027735],[52.8050678,-2.1033823]]]},{"street":"St Thomas Lane","routeId":"D","res":0,"segments":[[[52.8068778,-2.0831662],[52.8068645,-2.083157]]]},{"street":"Tixall Road","routeId":"D","res":32.6,"segments":[[[52.8071911,-2.1027127],[52.8071967,-2.1030572]],[[52.8069407,-2.0824978],[52.8069121,-2.0829924],[52.8068778,-2.0831662],[52.8067979,-2.0834694],[52.8067642,-2.0835776],[52.8067534,-2.0836122],[52.8066622,-2.0838146]],[[52.806654,-2.0838327],[52.8065925,-2.0839691],[52.8064966,-2.0840943]],[[52.8064109,-2.0842062],[52.8063812,-2.084245],[52.8063715,-2.0842524]]]},{"street":"Wolseley Road","routeId":"D","res":81,"segments":[[[52.806217,-2.0896917],[52.8061876,-2.0896414],[52.8060755,-2.0894648],[52.8057544,-2.0891138],[52.8057098,-2.0890595],[52.8056725,-2.0889989],[52.8056402,-2.0889155],[52.8056139,-2.0888193],[52.805599,-2.0887064],[52.8055813,-2.0885606],[52.8055706,-2.0882998],[52.8055717,-2.0877213],[52.8055945,-2.0874853],[52.8056385,-2.0871998],[52.8056866,-2.08696],[52.8057335,-2.0867597],[52.8058112,-2.086518],[52.8058994,-2.0862989],[52.8060143,-2.0860477],[52.8063237,-2.0854953],[52.8063514,-2.0854148],[52.8063762,-2.08531],[52.8064024,-2.0851031],[52.80641,-2.0849832],[52.8064095,-2.0848734],[52.8063994,-2.0847561],[52.8063813,-2.0846214],[52.8063385,-2.0844433],[52.8063063,-2.0843089]]]},{"street":"Cull Avenue","routeId":"E","res":23,"segments":[[[52.8071113,-2.0984145],[52.8082965,-2.0981532],[52.8084369,-2.0981233],[52.8084974,-2.0981306],[52.8085569,-2.0981681],[52.8085937,-2.0981947],[52.808639,-2.0982273]]]},{"street":"Harrowby Street","routeId":"E","res":103,"segments":[[[52.8053669,-2.1005897],[52.8052671,-2.1000279],[52.8051584,-2.0993988]],[[52.8051584,-2.0993988],[52.8050433,-2.0987598]],[[52.8051584,-2.0993988],[52.8060246,-2.0989967],[52.8064619,-2.0987929],[52.8067172,-2.0986731],[52.8071158,-2.0984908]]]},{"street":"Tixall Road (part 3)","routeId":"E","res":119.4,"segments":[[[52.8067674,-2.0946219],[52.8067674,-2.0946219],[52.8068289,-2.0951943],[52.8068538,-2.0954238],[52.8069412,-2.0963679],[52.8069955,-2.0969783],[52.807035,-2.0974411],[52.8071113,-2.0984145],[52.8071158,-2.0984908],[52.80715,-2.0989496],[52.8071659,-2.100173],[52.8071855,-2.1017476],[52.8071911,-2.1027127]]]},{"street":"Birkdale Drive","routeId":"F","res":34,"segments":[[[52.8102701,-2.0885373],[52.8102566,-2.0886029],[52.8102492,-2.0887021],[52.8102549,-2.0888119],[52.8102714,-2.0889102],[52.8102958,-2.0890041],[52.8103223,-2.0890754],[52.8103686,-2.0891576],[52.8104164,-2.0892226],[52.810467,-2.0892618],[52.8105392,-2.0892964],[52.8105917,-2.0893114],[52.8106787,-2.0893252],[52.8107427,-2.0893376]],[[52.8102701,-2.0885373],[52.8103025,-2.0884389],[52.8103431,-2.0883532],[52.8103766,-2.0882969],[52.8104824,-2.0881102],[52.8105422,-2.0879956],[52.810579,-2.0878796],[52.8105981,-2.0877726],[52.8106017,-2.0876695],[52.810595,-2.0875461],[52.8105765,-2.0874118],[52.810541,-2.0872546],[52.810498,-2.0871311],[52.8104497,-2.0870218],[52.8103922,-2.0869254],[52.8099235,-2.0864335],[52.8096002,-2.0861617],[52.8093252,-2.0859809],[52.8089862,-2.085688],[52.8086886,-2.0856756],[52.8084625,-2.0857877],[52.8082467,-2.0859875],[52.8080756,-2.0861297]],[[52.8064024,-2.0851031],[52.8066609,-2.0852008],[52.8066882,-2.085218],[52.8067061,-2.0852353],[52.8067331,-2.0852768],[52.8068326,-2.0854795],[52.8068868,-2.0855864],[52.8069428,-2.0856482],[52.8070115,-2.085702],[52.8074675,-2.0860239],[52.8076493,-2.0861218]],[[52.8080756,-2.0861297],[52.8076493,-2.0861218]]]},{"street":"Colwich Crescent","routeId":"F","res":36,"segments":[[[52.8059995,-2.0878244],[52.8060294,-2.087637],[52.8060729,-2.0875461],[52.8061397,-2.087463],[52.8062533,-2.0873526],[52.8063398,-2.0872624]],[[52.8063398,-2.0872624],[52.8063701,-2.0872115],[52.8063947,-2.0871342],[52.8064616,-2.0866222]],[[52.8055717,-2.0877213],[52.8056116,-2.0877309],[52.8059995,-2.0878244]],[[52.8059995,-2.0878244],[52.8059839,-2.0880765],[52.8059908,-2.0881747],[52.8060103,-2.0882521],[52.8060357,-2.0883038],[52.8060682,-2.0883464],[52.8061111,-2.0883823],[52.8061766,-2.0884073],[52.8064101,-2.0884721],[52.8064882,-2.0884743],[52.8065659,-2.0884635]]]},{"street":"Gleneagles Drive","routeId":"F","res":27,"segments":[[[52.8074675,-2.0860239],[52.8074255,-2.0863356],[52.8074014,-2.0864604],[52.8073574,-2.0865724],[52.8073019,-2.0866695],[52.8072661,-2.086724],[52.8072321,-2.0867418],[52.807139,-2.0867301],[52.8068609,-2.0866385],[52.8067308,-2.0866085]]]},{"street":"Hogan Way","routeId":"F","res":22,"segments":[[[52.8099235,-2.0864335],[52.809761,-2.0869036]],[[52.809761,-2.0869036],[52.8101475,-2.087391],[52.8101079,-2.0874786]],[[52.809761,-2.0869036],[52.8093903,-2.086677]]]},{"street":"Lytham Drive","routeId":"F","res":9,"segments":[[[52.8061876,-2.0896414],[52.806325,-2.0893991]]]},{"street":"Wentworth Drive","routeId":"F","res":31,"segments":[[[52.8065659,-2.0884635],[52.8065046,-2.0891916],[52.806507,-2.0892874],[52.8065215,-2.0893339],[52.8065347,-2.0893749],[52.8065581,-2.0894101],[52.8065976,-2.0894352],[52.806655,-2.0894428],[52.8067769,-2.0894311],[52.8068956,-2.0894064],[52.8069881,-2.0893713],[52.8070491,-2.0893445]]]},{"street":"Vardon Close","routeId":"F","res":18,"segments":[[[52.8083657,-2.08657],[52.8082733,-2.0866296],[52.8082026,-2.0866646],[52.8081246,-2.0866856],[52.8080313,-2.0867017],[52.8079787,-2.0867013],[52.8078972,-2.0866814]],[[52.8082467,-2.0859875],[52.8083657,-2.08657]],[[52.8083657,-2.08657],[52.8085142,-2.0864958],[52.8086127,-2.086464],[52.8086872,-2.0864578],[52.8087633,-2.0864577],[52.8088144,-2.0864461],[52.8089126,-2.0864125]]]},{"street":"Kingston Hill Court","routeId":"F","res":21,"segments":[[[52.8065659,-2.0884635],[52.8068295,-2.0884682],[52.8069422,-2.0884707],[52.8070929,-2.0885395]]]},{"street":"Sunningdale Drive","routeId":"F","res":26,"segments":[[[52.8063398,-2.0872624],[52.8063726,-2.0873434],[52.8064254,-2.0874339],[52.8064976,-2.0875102],[52.8065715,-2.0875598],[52.8066518,-2.0875953],[52.8067282,-2.0876127],[52.8067982,-2.0876161],[52.8069522,-2.0876124],[52.8070595,-2.0876189],[52.8072073,-2.0876419]]]},{"street":"Blenheim Close","routeId":"F","res":0,"segments":[[[52.8076632,-2.0827936],[52.8076647,-2.0827923]]]},{"street":"Hampton Gardens","routeId":"F","res":0,"segments":[[[52.8085561,-2.0834131],[52.8085577,-2.0832991],[52.8085703,-2.0831765],[52.808574,-2.0831621]]]},{"street":"Holyrood Close","routeId":"F","res":12,"segments":[[[52.807656,-2.0833863],[52.8075934,-2.0834481],[52.807547,-2.0835304],[52.8075107,-2.0836513],[52.8074683,-2.0837595],[52.8073725,-2.0839282],[52.8072833,-2.0840606]],[[52.8072833,-2.0840606],[52.8073186,-2.0841173],[52.807415,-2.0842037],[52.8075541,-2.0843379],[52.8076145,-2.0843802],[52.8076838,-2.084401],[52.8077792,-2.0843826]],[[52.8072833,-2.0840606],[52.8072214,-2.0839551]]]},{"street":"Kensington Drive","routeId":"F","res":0,"segments":[[[52.8076616,-2.082791],[52.8076632,-2.0827936]],[[52.8080937,-2.0836071],[52.8081198,-2.0836019],[52.8081974,-2.0835963],[52.808248,-2.0836143],[52.8083024,-2.0836334],[52.8083494,-2.0836365],[52.8083975,-2.0836213],[52.8084851,-2.0834742],[52.8085159,-2.0834287],[52.8085561,-2.0834131]],[[52.8080443,-2.0836249],[52.8080802,-2.0835222],[52.8081368,-2.0833476],[52.808224,-2.083159],[52.8082589,-2.083034]],[[52.8085561,-2.0834131],[52.808597,-2.0834152],[52.8086975,-2.0834944],[52.8089672,-2.0836291],[52.8090105,-2.0836392],[52.809026,-2.0836298],[52.8090545,-2.0836127],[52.8090891,-2.0835494],[52.8091256,-2.0834233],[52.8091471,-2.0833952]],[[52.8076632,-2.0827936],[52.8076753,-2.0828567],[52.8076763,-2.0829233],[52.8076522,-2.0830652],[52.8076287,-2.0832103],[52.8076339,-2.0832979],[52.807656,-2.0833863],[52.8076846,-2.083438],[52.8077149,-2.0834673],[52.8077847,-2.083548],[52.8078785,-2.0836191],[52.8079582,-2.0836365],[52.8080443,-2.0836249]],[[52.8080443,-2.0836249],[52.8080937,-2.0836071]]]},{"street":"Cowan Drive","routeId":"G","res":54,"segments":[[[52.8083669,-2.0991675],[52.8085122,-2.0992317],[52.8085762,-2.0993559],[52.8085863,-2.0994773],[52.8086041,-2.0995858],[52.808838,-2.099943],[52.8090815,-2.100225],[52.8093355,-2.1003574],[52.8095464,-2.1004289],[52.809718,-2.1004952],[52.8100714,-2.1006681]],[[52.8100714,-2.1006681],[52.8102007,-2.1008322],[52.8104659,-2.1012088]],[[52.8100714,-2.1006681],[52.8102505,-2.1000351]]]},{"street":"Davies Close","routeId":"G","res":14,"segments":[[[52.8102007,-2.1008322],[52.8099144,-2.1014649]]]},{"street":"Frew Close","routeId":"G","res":31,"segments":[[[52.8095464,-2.1004289],[52.8095906,-2.1001808],[52.8096591,-2.0999563]],[[52.8096591,-2.0999563],[52.809598,-2.099899],[52.8094911,-2.099818],[52.8093842,-2.0997311],[52.809319,-2.0996263]]]},{"street":"Richards Avenue","routeId":"G","res":18,"segments":[[[52.8104659,-2.1012088],[52.8106737,-2.1008444],[52.8108,-2.1005989],[52.8108726,-2.1004565]]]},{"street":"John Street","routeId":"G","res":51,"segments":[[[52.8108617,-2.1029324],[52.8108795,-2.1029579],[52.8108927,-2.102998],[52.8112472,-2.1043567],[52.8112719,-2.1044362],[52.8112922,-2.1044616],[52.811317,-2.1044666]]]},{"street":"Lammascote Road","routeId":"H","res":48,"segments":[[[52.8060606,-2.1070638],[52.8060603,-2.1070581],[52.8060619,-2.1069258],[52.8060698,-2.10677],[52.8060793,-2.10665],[52.8060906,-2.106541]],[[52.8060906,-2.106541],[52.8061177,-2.1063216],[52.8061495,-2.1061341],[52.8061837,-2.105962]]]},{"street":"Unknown Road (part 1)","routeId":"H","res":51.3,"segments":[[[52.8060906,-2.106541],[52.806165,-2.1064024],[52.8062546,-2.1063357]]]},{"street":"Unknown Road (part 2)","routeId":"H","res":62.7,"segments":[[[52.8062546,-2.1063357],[52.8062861,-2.1063192],[52.80641,-2.1062543],[52.8064875,-2.106166]]]},{"street":"Pennycrofts","routeId":"H","res":14,"segments":[[[52.8071531,-2.10587],[52.8072939,-2.1067104],[52.8073532,-2.1071905]],[[52.8073532,-2.1071905],[52.807165,-2.1072776],[52.8069926,-2.1071297],[52.8069096,-2.1071085],[52.8066286,-2.1071825],[52.8064498,-2.1070557],[52.8063668,-2.1070557]],[[52.8073532,-2.1071905],[52.8074268,-2.1072804],[52.8077335,-2.1071541],[52.8078292,-2.1071011],[52.8079154,-2.1069424],[52.8082193,-2.1068022],[52.8083693,-2.1066729],[52.8083463,-2.1064853]]]},{"street":"Mynors Street","routeId":"I","res":90,"segments":[[[52.8090751,-2.1016044],[52.808692,-2.1027514],[52.8085607,-2.1031698],[52.80816,-2.1048776],[52.808182,-2.1052316],[52.8081947,-2.1054349]]]},{"street":"Westhead Avenue","routeId":"I","res":67,"segments":[[[52.8102059,-2.1034012],[52.8099882,-2.1027281],[52.809947,-2.1026368],[52.8098966,-2.1025669],[52.8090751,-2.1016044],[52.8085438,-2.1010077],[52.8081639,-2.1006882],[52.8079795,-2.1005331]]]},{"street":"Littleton Close","routeId":"I","res":17,"segments":[[[52.808692,-2.1027514],[52.8090739,-2.1030033]]]},{"street":"Bedford Avenue","routeId":"I","res":77,"segments":[[[52.8085438,-2.1010077],[52.8081687,-2.1022026],[52.8081142,-2.1023741],[52.8080837,-2.1024634],[52.8073162,-2.1050409],[52.8074038,-2.1055477],[52.8074356,-2.1057314]]]},{"street":"St. Johns Walk","routeId":"I","res":34,"segments":[[[52.8085607,-2.1031698],[52.8088405,-2.103675],[52.8088655,-2.1037201],[52.8090769,-2.1043875]]]},{"street":"Fairway","routeId":"J","res":71,"segments":[[[52.805007,-2.1030071],[52.8050339,-2.1031851],[52.8050678,-2.1033823],[52.8051068,-2.103628],[52.8052245,-2.1043859],[52.8053068,-2.1046954],[52.8054142,-2.1050222],[52.8054893,-2.1052886],[52.8055017,-2.1053564],[52.8055079,-2.1054546]],[[52.8035356,-2.0996742],[52.803772,-2.0997882],[52.8040924,-2.0999892],[52.8042168,-2.1001006],[52.8043572,-2.1002634],[52.8044946,-2.1005259],[52.8045733,-2.100745],[52.8046345,-2.100931],[52.8046853,-2.101153],[52.8048694,-2.1021468],[52.805007,-2.1030071]],[[52.8034169,-2.099612],[52.8034946,-2.0996514]],[[52.8034946,-2.0996514],[52.8035356,-2.0996742]]]},{"street":"Riverway","routeId":"J","res":79,"segments":[[[52.8061837,-2.105962],[52.8061727,-2.1059524]],[[52.8058648,-2.105683],[52.8058276,-2.1056493],[52.8057082,-2.1055512]],[[52.804112,-2.1060076],[52.8039807,-2.1060894],[52.8037989,-2.1061876]],[[52.8055079,-2.1054546],[52.8054255,-2.1054425],[52.8053623,-2.1054387]],[[52.805231,-2.1054456],[52.8051397,-2.1054599],[52.8050965,-2.1054749]],[[52.8050684,-2.1054847],[52.8050487,-2.1054915],[52.8047606,-2.10563],[52.8045159,-2.1057698],[52.8044337,-2.1058181],[52.804112,-2.1060076]],[[52.8057082,-2.1055512],[52.8055969,-2.1054867],[52.8055079,-2.1054546]]]},{"street":"Greenway","routeId":"J","res":32,"segments":[[[52.8059566,-2.1016425],[52.8064626,-2.1013999]],[[52.8059566,-2.1016425],[52.805633,-2.1018061]],[[52.805633,-2.1018061],[52.8048694,-2.1021468]]]},{"street":"West Close","routeId":"J","res":30,"segments":[[[52.8060344,-2.1040129],[52.8056576,-2.1051522],[52.8056184,-2.1052101],[52.8055821,-2.1052408],[52.8054893,-2.1052886]]]},{"street":"Cairns Drive","routeId":"K","res":41,"segments":[[[52.8136978,-2.0904695],[52.8139146,-2.0913985],[52.8139277,-2.0914871],[52.8139592,-2.0917734],[52.8139796,-2.0918986],[52.8141461,-2.0927058]]]},{"street":"Canberra Drive","routeId":"K","res":47,"segments":[[[52.8134997,-2.0920781],[52.8134209,-2.0921306]],[[52.8134209,-2.0921306],[52.8133519,-2.0921786]],[[52.8134209,-2.0921306],[52.8133931,-2.0919753],[52.813379,-2.0918427],[52.8133722,-2.0917341],[52.8133679,-2.0916256],[52.8133552,-2.0915047],[52.8133164,-2.0912886],[52.8132928,-2.0911424],[52.8132607,-2.0908299],[52.8132446,-2.0907634],[52.813204,-2.0906724],[52.8131594,-2.0905837],[52.8131243,-2.0904831],[52.8131066,-2.0903861],[52.8130778,-2.0901872],[52.8130257,-2.0899478],[52.8129997,-2.0898403],[52.8129844,-2.0897354],[52.8129678,-2.0895686],[52.8129562,-2.0894068],[52.8129303,-2.0892289]]]},{"street":"Darwin Close","routeId":"K","res":13,"segments":[[[52.8130257,-2.0899478],[52.8132208,-2.0898013],[52.8133834,-2.0896341]]]},{"street":"Gladstone Way","routeId":"K","res":85,"segments":[[[52.8132446,-2.0907634],[52.813602,-2.0905265],[52.8136978,-2.0904695],[52.813786,-2.0903878],[52.8138576,-2.0903006]],[[52.813936,-2.0901411],[52.8139851,-2.0898956],[52.8139997,-2.089773],[52.8140334,-2.0896702],[52.8140703,-2.089597],[52.8141144,-2.0895426],[52.8141769,-2.0894928],[52.8146076,-2.0892268],[52.8147834,-2.0891203],[52.8148215,-2.089098]],[[52.8138576,-2.0903006],[52.8138846,-2.0902552],[52.813936,-2.0901411]]]},{"street":"Melbourne Crescent","routeId":"K","res":46,"segments":[[[52.8150447,-2.0920975],[52.8151105,-2.0919497]],[[52.8141461,-2.0927058],[52.8144762,-2.0925078],[52.8148401,-2.0922854],[52.8149713,-2.0922003],[52.8150447,-2.0920975]],[[52.8151105,-2.0919497],[52.8151414,-2.0918537],[52.8151684,-2.0917422],[52.8151753,-2.0915851],[52.8151654,-2.0914233],[52.8148351,-2.0900112],[52.8147943,-2.0898345],[52.8147669,-2.0897487],[52.8147209,-2.089638],[52.81468,-2.0895545],[52.8146542,-2.0894802],[52.8146409,-2.0894179],[52.8146232,-2.0893228],[52.8146076,-2.0892268]],[[52.8141461,-2.0927058],[52.8140079,-2.0927911],[52.8139458,-2.0928142],[52.8138742,-2.0928273],[52.8137898,-2.0928709],[52.8135217,-2.0930392]]]},{"street":"Tasman Drive","routeId":"K","res":0,"segments":[[[52.8148351,-2.0900112],[52.8145739,-2.0901791],[52.8144148,-2.0903037]]]}]},"baswich":{"ward":"Baswich","start":{"lat":52.7920843,"lon":-2.0787027,"label":"BOD (Titanic Brewery)"},"hubs":[{"id":null,"lat":52.7920843,"lon":-2.0787027,"label":"BOD (Titanic Brewery)"}],"routesMeta":{"A":{"id":"A","name":"Bodmin Avenue & Dawlish Avenue","kind":"walk","shape":"out-and-back","residences":256,"marker":null,"hubId":null},"B":{"id":"B","name":"Porlock Avenue & Tiverton Avenue","kind":"walk","shape":"out-and-back","residences":215,"marker":null,"hubId":null},"C":{"id":"C","name":"Newquay Avenue & Falmouth Avenue","kind":"walk","shape":"out-and-back","residences":204,"marker":null,"hubId":null},"D":{"id":"D","name":"Sidmouth Avenue & Bideford Avenue","kind":"walk","shape":"out-and-back","residences":297,"marker":null,"hubId":null},"E":{"id":"E","name":"Widecombe Avenue & Braunton Avenue","kind":"walk","shape":"out-and-back","residences":137,"marker":null,"hubId":null},"F":{"id":"F","name":"Torrington Avenue & Babbacombe Avenue","kind":"walk","shape":"out-and-back","residences":173,"marker":null,"hubId":null},"G":{"id":"G","name":"Cornwall Drive & Hayle Close","kind":"hybrid","shape":"loop","residences":371,"marker":{"label":"Cornwall Drive","point":[-2.0767646,52.798192]},"hubId":null},"H":{"id":"H","name":"Lodgefield Park & The Saltings","kind":"drive","shape":"out-and-back","residences":200,"marker":{"label":"Lodgefield Park","point":[-2.0780289006572836,52.800412682227226]},"hubId":null},"I":{"id":"I","name":"Danta Way & Farmdown Road","kind":"drive","shape":"out-and-back","residences":241.5,"marker":{"label":"Farmdown Road","point":[-2.0855446,52.7976339]},"hubId":null},"J":{"id":"J","name":"Ascot Road & Osborne Crescent","kind":"drive","shape":"loop","residences":169,"marker":{"label":"Ascot Road","point":[-2.0859878,52.7955652]},"hubId":null},"K":{"id":"K","name":"Sandringham Road & Radford Rise","kind":"drive","shape":"loop","residences":114,"marker":{"label":"Sandringham Road","point":[-2.0864991620791637,52.7934910982238]},"hubId":null},"L":{"id":"L","name":"Queensville & Benenden Close","kind":"drive","shape":"out-and-back","residences":308,"marker":{"label":"Ludgrove Way","point":[-2.0950690762643998,52.79446704992728]},"hubId":null}},"roads":[{"street":"Bodmin Avenue","routeId":"A","res":150,"segments":[[[52.7890313,-2.0714905],[52.7894161,-2.0728152]],[[52.792116,-2.0793325],[52.7922267,-2.0797276],[52.7923551,-2.0800252],[52.7924882,-2.0802681],[52.7926667,-2.0805501],[52.7930022,-2.0809242],[52.7931293,-2.0810577],[52.7933002,-2.0812091],[52.7935347,-2.0813133],[52.7937917,-2.0813915],[52.7940195,-2.0814311],[52.7941945,-2.0814366]],[[52.7894161,-2.0728152],[52.7896234,-2.0733714],[52.7900889,-2.074218],[52.7906966,-2.0751452],[52.7908673,-2.0753887],[52.7910149,-2.0756422],[52.7911278,-2.075864],[52.7912533,-2.0761317],[52.791357,-2.0764052],[52.7914334,-2.0766521],[52.7915968,-2.0772735],[52.7917823,-2.078025],[52.7919027,-2.0785125],[52.7919125,-2.078552],[52.792116,-2.0793325]]]},{"street":"Honiton Close","routeId":"A","res":15,"segments":[[[52.7915509,-2.0754509],[52.7911278,-2.075864]],[[52.7916183,-2.0755041],[52.7915509,-2.0754509]],[[52.7915509,-2.0754509],[52.7915453,-2.0753378]]]},{"street":"Portleven Close","routeId":"A","res":15,"segments":[[[52.7890832,-2.0741275],[52.7896234,-2.0733714]]]},{"street":"Saint Austell Close","routeId":"A","res":32,"segments":[[[52.792927,-2.0790614],[52.7929372,-2.0791591],[52.792983,-2.0792231],[52.793043,-2.0792234]],[[52.793043,-2.0792234],[52.7930891,-2.0791599],[52.7930997,-2.0790623],[52.7930699,-2.0789762],[52.7930136,-2.078942],[52.7929571,-2.0789756],[52.792927,-2.0790614]],[[52.793043,-2.0792234],[52.7932375,-2.0799284],[52.7932473,-2.0801628],[52.7932053,-2.0803613],[52.7930022,-2.0809242]]]},{"street":"Dawlish Avenue","routeId":"A","res":44,"segments":[[[52.791357,-2.0764052],[52.7912511,-2.0764928],[52.7905454,-2.077077],[52.7904996,-2.0770999],[52.7904576,-2.0770885],[52.7904233,-2.0770656],[52.7903775,-2.0769969],[52.7900666,-2.0763246],[52.7898681,-2.0758208],[52.7896559,-2.0751797],[52.7896391,-2.0750499],[52.7896491,-2.0749193],[52.7896768,-2.07479],[52.7900889,-2.074218]]]},{"street":"Porlock Avenue","routeId":"B","res":174,"segments":[[[52.7941945,-2.0814366],[52.7942144,-2.0817733],[52.7942381,-2.0823858],[52.7942419,-2.0834698]],[[52.7917186,-2.0693933],[52.7917281,-2.0694953],[52.7917518,-2.0704077],[52.7918019,-2.0709153],[52.7918699,-2.0713863]],[[52.7935153,-2.0771628],[52.7935572,-2.0773558],[52.7937446,-2.078248],[52.7939132,-2.0791305],[52.7940159,-2.0797734],[52.7941328,-2.0806344],[52.7941571,-2.0809264]],[[52.7918699,-2.0713863],[52.7919686,-2.0718536],[52.7920718,-2.0722551],[52.7923963,-2.073274],[52.792565,-2.0738298],[52.7931265,-2.0756419],[52.7932598,-2.0761251],[52.7933987,-2.0766916],[52.7935153,-2.0771628]],[[52.7941571,-2.0809264],[52.7941945,-2.0814366]]]},{"street":"Tiverton Avenue","routeId":"B","res":41,"segments":[[[52.7935572,-2.0773558],[52.7921876,-2.0783519],[52.7919125,-2.078552]]]},{"street":"Falmouth Avenue","routeId":"C","res":47,"segments":[[[52.79528,-2.0736148],[52.795176,-2.0734079],[52.794718,-2.0724966],[52.7941852,-2.0714859],[52.7940967,-2.0713223],[52.7939037,-2.0709655],[52.79364,-2.0705928],[52.7932214,-2.0701226],[52.7930391,-2.0699595],[52.7928945,-2.0698302],[52.792746,-2.0697213]],[[52.792746,-2.0697213],[52.7925275,-2.0695778],[52.792172,-2.069423],[52.791977,-2.0693657],[52.7918566,-2.0693657],[52.7917948,-2.0693639],[52.7917186,-2.0693933]],[[52.792746,-2.0697213],[52.7928745,-2.0692103],[52.7930265,-2.0688023]]]},{"street":"Lynton Avenue","routeId":"C","res":22,"segments":[[[52.792116,-2.0793325],[52.7917044,-2.0795762],[52.7916154,-2.0796212],[52.7911793,-2.0798664],[52.7900345,-2.080485]]]},{"street":"Milford Road","routeId":"C","res":5,"segments":[[[52.788123,-2.0722179],[52.7881085,-2.0718378],[52.7881072,-2.0717619],[52.7881066,-2.0716838],[52.7881124,-2.0711864]]]},{"street":"Newquay Avenue","routeId":"C","res":59,"segments":[[[52.7931293,-2.0810577],[52.7929139,-2.0816722],[52.7928832,-2.0817221],[52.7928334,-2.081768],[52.7927683,-2.0817757],[52.7917315,-2.081701],[52.7916318,-2.0816741],[52.7915475,-2.0816052],[52.7914786,-2.0814902],[52.7911793,-2.0798664]]]},{"street":"Stockton Lane","routeId":"C","res":16,"segments":[[[52.7917186,-2.0693933],[52.7916937,-2.0693417],[52.7916523,-2.0693108],[52.7915999,-2.0693051],[52.7914965,-2.0693266],[52.7913837,-2.0693749],[52.7908755,-2.0698556]],[[52.7908755,-2.0698556],[52.7904426,-2.070362],[52.7901353,-2.0706652],[52.789946,-2.0708209],[52.7890313,-2.0714905]],[[52.7890313,-2.0714905],[52.7885323,-2.0720027],[52.7883856,-2.0720821],[52.7883565,-2.0721026],[52.788123,-2.0722179]]]},{"street":"Weeping Cross","routeId":"C","res":6,"segments":[[[52.7904357,-2.0837437],[52.790513,-2.0836882],[52.7905912,-2.0834899],[52.7905939,-2.0833162]],[[52.7905939,-2.0833162],[52.7905372,-2.0829284],[52.7900853,-2.0807317],[52.7900345,-2.080485]],[[52.7883856,-2.0720821],[52.7882818,-2.0715835]],[[52.7900345,-2.080485],[52.7898982,-2.079873],[52.7897336,-2.0792394],[52.7896074,-2.0787489],[52.7894983,-2.0783472],[52.7893443,-2.0777978],[52.7892955,-2.077638],[52.789053,-2.076819]],[[52.7881908,-2.0731894],[52.788174,-2.0729129],[52.7881391,-2.0724375]],[[52.789053,-2.076819],[52.7889646,-2.0765206],[52.7887579,-2.0759143],[52.78859,-2.075378],[52.7884255,-2.0747424],[52.7883408,-2.0743851],[52.7882294,-2.0737191],[52.7881932,-2.0732295]],[[52.7905939,-2.0833162],[52.7904911,-2.0834104],[52.7904143,-2.0836015],[52.7904357,-2.0837437]],[[52.7881932,-2.0732295],[52.7881908,-2.0731894]],[[52.7881391,-2.0724375],[52.788123,-2.0722179]]]},{"street":"Falmouth Close","routeId":"C","res":0,"segments":[[[52.7930265,-2.0688023],[52.7930999,-2.0687047],[52.7931551,-2.0686616],[52.7932216,-2.0686859],[52.7933993,-2.0688872]]]},{"street":"Appledore Close","routeId":"C","res":20,"segments":[[[52.7913689,-2.072801],[52.7917545,-2.0738268]]]},{"street":"Camborne Close","routeId":"C","res":29,"segments":[[[52.7922582,-2.0753541],[52.7917545,-2.0738268]]]},{"street":"Bideford Avenue","routeId":"D","res":70,"segments":[[[52.7942058,-2.0767769],[52.7944433,-2.0778774],[52.794635,-2.0788407],[52.7947933,-2.0799576],[52.7948095,-2.0801244],[52.7947973,-2.080264],[52.7947621,-2.0803644],[52.79472,-2.0804417],[52.7946644,-2.0805108],[52.7941328,-2.0806344]]]},{"street":"Sidmouth Avenue","routeId":"D","res":85,"segments":[[[52.7958442,-2.0760782],[52.7959064,-2.0761318],[52.7959459,-2.0762158],[52.7959736,-2.0763185],[52.7959956,-2.0765241],[52.7960072,-2.0767451],[52.7960117,-2.0769826],[52.7960187,-2.0773019]],[[52.7960187,-2.0773019],[52.7959927,-2.077609],[52.7959745,-2.0779032],[52.7959381,-2.0782186],[52.7958774,-2.0785856],[52.7957925,-2.0791255],[52.7956954,-2.0797381],[52.795565,-2.0805631],[52.7954316,-2.081297],[52.7953982,-2.0816094]]]},{"street":"Yelverton Avenue","routeId":"D","res":38,"segments":[[[52.7935153,-2.0771628],[52.7942058,-2.0767769],[52.7950334,-2.0762925],[52.7952202,-2.0761918],[52.7953816,-2.0761308],[52.7955388,-2.0761023],[52.7956785,-2.076082],[52.7958442,-2.0760782]]]},{"street":"Salcombe Avenue","routeId":"D","res":40,"segments":[[[52.7960869,-2.0817138],[52.7958349,-2.0816701],[52.795653,-2.0816246],[52.7953982,-2.0816094],[52.7951738,-2.0816428],[52.7949918,-2.0816792],[52.7947916,-2.0817459],[52.794549,-2.0817884],[52.7942144,-2.0817733]]]},{"street":"Saint Ives Close","routeId":"D","res":26,"segments":[[[52.7953721,-2.0772928],[52.7944433,-2.0778774]]]},{"street":"Tavistock Avenue","routeId":"D","res":15,"segments":[[[52.7966398,-2.0773256],[52.7965743,-2.0773014],[52.7963484,-2.0772985],[52.7960187,-2.0773019]]]},{"street":"Saint Mawes Close","routeId":"D","res":23,"segments":[[[52.7957925,-2.0791255],[52.7955135,-2.0790163],[52.7953254,-2.0789374],[52.7952678,-2.0788828],[52.7952344,-2.0788161],[52.7952223,-2.0787555],[52.7952162,-2.0786887]],[[52.7952162,-2.0786887],[52.7952617,-2.0786463],[52.7952769,-2.0785886],[52.7952678,-2.078525],[52.7952496,-2.0784825],[52.795198,-2.0784643],[52.7951616,-2.0784977],[52.7951495,-2.0785553],[52.7951495,-2.0786099],[52.7951677,-2.0786523],[52.7952162,-2.0786887]]]},{"street":"Braunton Avenue","routeId":"E","res":43,"segments":[[[52.7912357,-2.0743868],[52.7907025,-2.0734135],[52.7905442,-2.0730704],[52.7902193,-2.0721758]]]},{"street":"Hartland Avenue","routeId":"E","res":43,"segments":[[[52.7906966,-2.0751452],[52.7909419,-2.0747933],[52.7912357,-2.0743868],[52.7917545,-2.0738268],[52.7923963,-2.073274]]]},{"street":"Widecombe Avenue","routeId":"E","res":51,"segments":[[[52.7918699,-2.0713863],[52.7909203,-2.0718206],[52.7902193,-2.0721758],[52.7894161,-2.0728152]]]},{"street":"Babbacombe Avenue","routeId":"F","res":36,"segments":[[[52.7939296,-2.0727564],[52.7933033,-2.073249],[52.792565,-2.0738298]]]},{"street":"Camelford Close","routeId":"F","res":27,"segments":[[[52.7937157,-2.0744492],[52.7933033,-2.073249]]]},{"street":"Seaton Avenue","routeId":"F","res":13,"segments":[[[52.7936689,-2.0722034],[52.79407,-2.0716193],[52.7941852,-2.0714859]]]},{"street":"Torrington Avenue","routeId":"F","res":80,"segments":[[[52.7918019,-2.0709153],[52.7921775,-2.0708235],[52.7923186,-2.0708049],[52.7925058,-2.0708269],[52.7926098,-2.0708743],[52.7927344,-2.0709551],[52.7930085,-2.0712457],[52.7931497,-2.0713951],[52.7934324,-2.0717919],[52.7936689,-2.0722034],[52.7939296,-2.0727564],[52.7945785,-2.0743122]]]},{"street":"Saint Michael's Close","routeId":"F","res":17,"segments":[[[52.7928247,-2.0721484],[52.7931497,-2.0713951]],[[52.7928882,-2.0722197],[52.7928247,-2.0721484]],[[52.7928247,-2.0721484],[52.792765,-2.0720816]]]},{"street":"Cornwall Drive","routeId":"G","res":96,"segments":[[[52.796672,-2.0746561],[52.7966688,-2.0748255],[52.7966874,-2.0749738],[52.7967353,-2.0751366],[52.7967867,-2.075257],[52.7968521,-2.0753431],[52.7969235,-2.0753998],[52.7970154,-2.0754852],[52.7970953,-2.075614],[52.7971461,-2.0757184],[52.7972051,-2.0758167],[52.7972551,-2.0758581],[52.7972996,-2.0758616],[52.7973584,-2.0758361],[52.7973881,-2.0758118],[52.79758,-2.0755678],[52.7976378,-2.0755188],[52.7976929,-2.075502],[52.7977406,-2.0755056],[52.7977881,-2.0755402],[52.7978391,-2.075601],[52.7978728,-2.0757038],[52.7978913,-2.0758211],[52.7978903,-2.0759782],[52.7979098,-2.0761468],[52.797937,-2.0763224],[52.7979954,-2.0765008],[52.7980684,-2.0766322],[52.798192,-2.0767646],[52.7983837,-2.0768715],[52.7984667,-2.0769927],[52.7985349,-2.0771824],[52.7986167,-2.0774984],[52.7986305,-2.0776166],[52.7986268,-2.0777117],[52.7986125,-2.0777799],[52.7985873,-2.0778322],[52.7983627,-2.0781966],[52.7983303,-2.0782708],[52.7983193,-2.0783815],[52.7983238,-2.0784853],[52.7983501,-2.0785767],[52.7984014,-2.0786522],[52.7985098,-2.0789165],[52.798606,-2.079243],[52.7988318,-2.0797254],[52.7988562,-2.079855],[52.7988504,-2.0799865],[52.7988289,-2.0801152],[52.7988421,-2.0802292],[52.799176,-2.0809589],[52.799321,-2.0812102],[52.7994231,-2.0814877],[52.7994789,-2.0817993],[52.799504,-2.0821319],[52.7995353,-2.0825021]]]},{"street":"Helston Close","routeId":"G","res":25,"segments":[[[52.7961291,-2.0758289],[52.7962162,-2.0757816],[52.796193,-2.075538],[52.7961741,-2.0751339],[52.7961226,-2.0746251]]]},{"street":"Padstow Drive","routeId":"G","res":32,"segments":[[[52.7954774,-2.0736096],[52.7954751,-2.0738679],[52.7955206,-2.0741656],[52.7955464,-2.074478],[52.7956012,-2.0746074],[52.795671,-2.0746867],[52.7957817,-2.0747396],[52.7960168,-2.0746458],[52.7961226,-2.0746251],[52.7962066,-2.0746163],[52.7963331,-2.0746551],[52.7965439,-2.0746538],[52.796672,-2.0746561]],[[52.795553,-2.0736238],[52.7954774,-2.0736096]],[[52.7954774,-2.0736096],[52.7954249,-2.0735997]]]},{"street":"Unknown Road","routeId":"G","res":41,"segments":[[[52.7959429,-2.0757181],[52.7962162,-2.0757816],[52.7962854,-2.0761654],[52.79631,-2.0763084],[52.7963232,-2.0763396],[52.7963627,-2.0763416],[52.796438,-2.0763603],[52.7965158,-2.0763748]]]},{"street":"Bude Drive","routeId":"G","res":21,"segments":[[[52.7957196,-2.0727222],[52.7957602,-2.0728271]],[[52.7957602,-2.0728271],[52.7958284,-2.0730032],[52.7958806,-2.0731572],[52.795913,-2.0734751],[52.7959228,-2.0737472],[52.796063,-2.0737356]],[[52.7957602,-2.0728271],[52.7958781,-2.0726809],[52.7960599,-2.0724993],[52.7961257,-2.0724398]]]},{"street":"Hayle Close","routeId":"G","res":48,"segments":[[[52.796063,-2.0737356],[52.796187,-2.0736987],[52.7962396,-2.0736601],[52.7962639,-2.0735298],[52.7962548,-2.0734356],[52.7962569,-2.0733637],[52.796284,-2.073275],[52.7963629,-2.0731699],[52.7965264,-2.0729823]],[[52.7968884,-2.0739286],[52.7967969,-2.074182],[52.7967191,-2.0744151],[52.796672,-2.0746561]],[[52.7964816,-2.0729001],[52.7965264,-2.0729823]],[[52.7965264,-2.0729823],[52.7968642,-2.0736025],[52.7968894,-2.0737647],[52.7968884,-2.0739286]]]},{"street":"Penzance Way","routeId":"G","res":37,"segments":[[[52.7968884,-2.0739286],[52.7969943,-2.0739709],[52.7970693,-2.0740408],[52.7971315,-2.0741335],[52.7971642,-2.0742904],[52.7972033,-2.0744827],[52.7972458,-2.074617],[52.7972818,-2.0746819],[52.7973352,-2.0747274],[52.7973996,-2.0747422],[52.7974987,-2.0747036]],[[52.7974987,-2.0747036],[52.7976006,-2.0746478]],[[52.7974987,-2.0747036],[52.7975476,-2.0749773],[52.7976793,-2.0752814],[52.7976929,-2.075502]]]},{"street":"Redruth Drive","routeId":"G","res":39,"segments":[[[52.7974643,-2.0767067],[52.797474,-2.076872],[52.7975111,-2.0770364],[52.7978951,-2.0776973],[52.7979535,-2.0778452],[52.7980612,-2.0781178],[52.7981828,-2.0783209],[52.7982484,-2.0783794],[52.7983193,-2.0783815]],[[52.7972996,-2.0758616],[52.7972972,-2.0760378],[52.7972609,-2.0764393],[52.797288,-2.0765761],[52.7973329,-2.076644],[52.7973872,-2.0766829],[52.7974643,-2.0767067]],[[52.7974643,-2.0767067],[52.7975502,-2.0766936]]]},{"street":"Truro Way","routeId":"G","res":32,"segments":[[[52.799176,-2.0809589],[52.7993056,-2.0807602],[52.7994373,-2.0805906],[52.7995373,-2.0804713],[52.7995671,-2.0803771],[52.7995756,-2.0802546],[52.7995527,-2.080097],[52.7994683,-2.0796705],[52.7993435,-2.0790983],[52.7992804,-2.0788885],[52.7992292,-2.0787733],[52.799173,-2.0787108],[52.7990657,-2.0786393],[52.7990162,-2.0785815],[52.7989615,-2.0784407],[52.7988341,-2.0779421],[52.7987823,-2.0778166],[52.798707,-2.0777396],[52.7986268,-2.0777117]]]},{"street":"Lodgefield Park","routeId":"H","res":134,"segments":[[[52.8005817,-2.0800295],[52.8004783,-2.0798974],[52.8004072,-2.0796622],[52.8002962,-2.0793152]],[[52.8002962,-2.0793152],[52.8005311,-2.0791184],[52.8006257,-2.0790741]],[[52.8006257,-2.0790741],[52.8006906,-2.0790438],[52.8008831,-2.0789578],[52.8010027,-2.0789491]],[[52.8010027,-2.0789491],[52.8012351,-2.0792245],[52.8014137,-2.0793794],[52.8015351,-2.0794568],[52.8016322,-2.0794367]],[[52.8016322,-2.0794367],[52.8019287,-2.0799243]],[[52.7997976,-2.0772054],[52.8000716,-2.0770276]],[[52.8012264,-2.0784788],[52.8007756,-2.0778822],[52.800408,-2.0773631],[52.8002589,-2.0775926]],[[52.8002589,-2.0775926],[52.8003958,-2.0779396],[52.8004652,-2.0783067],[52.8005727,-2.0787541],[52.8006257,-2.0790741]],[[52.8016547,-2.0789864],[52.8016512,-2.0787283],[52.8016062,-2.0784644],[52.8014536,-2.0780859],[52.8012091,-2.0776786],[52.8009473,-2.0772226],[52.8007583,-2.0768784],[52.8006369,-2.07654],[52.8004305,-2.0762589],[52.8002415,-2.0760295],[52.799945,-2.0757312],[52.7996069,-2.0754473],[52.799345,-2.0752666],[52.799189,-2.0754817],[52.7991231,-2.0756279]],[[52.7991231,-2.0756279],[52.7992167,-2.0759033],[52.7995583,-2.07654],[52.7997976,-2.0772054]],[[52.7997976,-2.0772054],[52.7999329,-2.0777532],[52.7999411,-2.0777946]],[[52.7999411,-2.0777946],[52.8000386,-2.0782838],[52.8001947,-2.0790094],[52.8002962,-2.0793152]],[[52.8016322,-2.0794367],[52.8016842,-2.0792904],[52.8017085,-2.0791585],[52.8016547,-2.0789864]],[[52.8016547,-2.0789864],[52.8012264,-2.0784788]],[[52.8012264,-2.0784788],[52.8011605,-2.0785247],[52.8010444,-2.0787799],[52.8010027,-2.0789491]],[[52.8002589,-2.0775926],[52.7999411,-2.0777946]],[[52.7991231,-2.0756279],[52.7988912,-2.0751608],[52.7986826,-2.0746987]]]},{"street":"The Saltings","routeId":"H","res":43,"segments":[[[52.8015533,-2.0804854],[52.8015429,-2.0803305],[52.8014528,-2.080167],[52.8013383,-2.0800781],[52.8010609,-2.079949],[52.8009118,-2.0798544],[52.8008043,-2.0798458],[52.800721,-2.0798818],[52.800639,-2.0799522],[52.8005817,-2.0800295],[52.8005646,-2.080137],[52.8005773,-2.0802449],[52.8007191,-2.0808093],[52.8008117,-2.0812606],[52.8008358,-2.0813614],[52.8008529,-2.0814331]]]},{"street":"Tilcon Avenue","routeId":"H","res":23,"segments":[[[52.8015571,-2.084187],[52.8016004,-2.0841044],[52.8016237,-2.0840163],[52.8016472,-2.0838563],[52.8016544,-2.0837171],[52.8016091,-2.0828899],[52.8015704,-2.0821849],[52.8015526,-2.0818596],[52.8015267,-2.081303]]]},{"street":"Two Waters Way","routeId":"H","res":0,"segments":[[[52.8038328,-2.0823224],[52.803291,-2.082191],[52.803221,-2.082132],[52.803156,-2.081995],[52.803101,-2.081805]]]},{"street":"Balmoral Road","routeId":"I","res":25,"segments":[[[52.7962689,-2.0855788],[52.7963512,-2.0853443],[52.7963958,-2.08517],[52.796398,-2.0850554],[52.7963836,-2.0847829],[52.7964247,-2.0845479],[52.7964831,-2.0844085],[52.7965461,-2.0842786],[52.796565,-2.0841247],[52.7965569,-2.0835885]]]},{"street":"Churchfield Close","routeId":"I","res":28,"segments":[[[52.7971684,-2.0857388],[52.7971004,-2.0858892],[52.7970863,-2.0860559],[52.7971703,-2.0871011]]]},{"street":"Danta Way","routeId":"I","res":74.5,"segments":[[[52.7978784,-2.0875158],[52.798057,-2.0874292],[52.7982693,-2.0872374],[52.7986923,-2.0867397],[52.7989246,-2.0864984],[52.7990124,-2.0864145],[52.7991192,-2.0863536],[52.7993953,-2.086243],[52.799442,-2.0861873],[52.7994746,-2.0860907],[52.7994899,-2.0859692],[52.7994841,-2.0856852],[52.7994854,-2.0853916],[52.7995035,-2.0852229],[52.7995399,-2.0850591],[52.7995948,-2.0849213],[52.7996847,-2.084777],[52.7998246,-2.0846672],[52.7999869,-2.0845405],[52.8000576,-2.0844324],[52.8000939,-2.0843285],[52.8001258,-2.0841658],[52.8001403,-2.0837609],[52.8001396,-2.0834741],[52.8001183,-2.0829809],[52.8000727,-2.0826465],[52.8000079,-2.0825475],[52.799933,-2.0825194],[52.7998035,-2.0825595],[52.7995609,-2.0827785],[52.7988366,-2.0835055],[52.7987221,-2.0836319],[52.7987049,-2.0836827],[52.798693,-2.0837549],[52.7986693,-2.0838221],[52.7986362,-2.0838649],[52.7985972,-2.0838784],[52.7985518,-2.0838757],[52.7985235,-2.0838649],[52.7984992,-2.0838387],[52.7984689,-2.083784],[52.7984488,-2.0837216],[52.7984347,-2.0836372]]]},{"street":"Farmdown Road","routeId":"I","res":72,"segments":[[[52.7978784,-2.0875158],[52.7976292,-2.0859518],[52.79759,-2.0858547],[52.7975372,-2.0857944]],[[52.7975372,-2.0857944],[52.7972283,-2.085785],[52.7971684,-2.0857388],[52.7971359,-2.0856978],[52.7970993,-2.0856121],[52.7970708,-2.0851734],[52.797084,-2.0850286],[52.7971012,-2.0849396],[52.7971407,-2.0848864],[52.7975446,-2.0845941],[52.7975786,-2.0845485],[52.7975954,-2.0844864],[52.7976084,-2.0841477],[52.7976261,-2.0836887]],[[52.7975372,-2.0857944],[52.7975941,-2.0856991],[52.7976339,-2.0855446]]]},{"street":"Mayfield Road","routeId":"I","res":18,"segments":[[[52.7964831,-2.0844085],[52.7965781,-2.0845043],[52.7966476,-2.0845164],[52.7968276,-2.0846077],[52.7970348,-2.0847513],[52.7971012,-2.0849396]]]},{"street":"Fairview Way","routeId":"I","res":24,"segments":[[[52.795209,-2.0885686],[52.7954557,-2.0884779],[52.7957573,-2.0884725],[52.7960864,-2.0885016],[52.7966445,-2.0883921],[52.7972266,-2.0882012],[52.7973726,-2.0881346],[52.797499,-2.0880536],[52.7976159,-2.0879495],[52.7977327,-2.0877779],[52.7978784,-2.0875158]]]},{"street":"Ascot Road","routeId":"J","res":93,"segments":[[[52.7956696,-2.0857656],[52.7955711,-2.0857993],[52.7954309,-2.0858251],[52.7953109,-2.085859],[52.7952123,-2.0859105],[52.7950106,-2.0860654]],[[52.7950106,-2.0860654],[52.7948808,-2.0862028],[52.7947874,-2.0863143],[52.7947043,-2.0864946],[52.7946369,-2.086795],[52.7946234,-2.0869206],[52.7946333,-2.0870302],[52.7946836,-2.0872156],[52.7947755,-2.0873672],[52.7948567,-2.0874262],[52.7949832,-2.087456],[52.7951037,-2.0874506],[52.7952012,-2.0874077],[52.7953551,-2.0873443]],[[52.7953551,-2.0873443],[52.7955397,-2.0873021],[52.7957942,-2.0872713],[52.7960038,-2.0872708]],[[52.7960038,-2.0872708],[52.7961485,-2.0872763],[52.7962552,-2.0872428],[52.7963526,-2.0871371],[52.7964288,-2.0869434],[52.7964763,-2.0867437],[52.7965066,-2.0864743],[52.7965152,-2.0862344],[52.7964954,-2.0859935],[52.7964434,-2.0858172],[52.7963657,-2.0856897],[52.7962987,-2.0856167],[52.7962689,-2.0855788],[52.7961992,-2.0855379],[52.7961119,-2.085547],[52.7960418,-2.085562],[52.795883,-2.0856641]],[[52.795883,-2.0856641],[52.7957856,-2.0857318],[52.7956696,-2.0857656]],[[52.795883,-2.0856641],[52.7958918,-2.0857528],[52.7958868,-2.0858246],[52.7957846,-2.0859278],[52.7955652,-2.0859878],[52.7954199,-2.0860135],[52.7952932,-2.0860577],[52.7951396,-2.0861509],[52.7950438,-2.0861849],[52.7950106,-2.0860654]],[[52.7960038,-2.0872708],[52.7959798,-2.0871237],[52.7959466,-2.0870829],[52.7956443,-2.0870999],[52.7954135,-2.0871408],[52.7953652,-2.0871882],[52.7953551,-2.0873443]]]},{"street":"Belvedere Close","routeId":"J","res":13,"segments":[[[52.7954111,-2.0848666],[52.7951873,-2.084905],[52.7950125,-2.084978],[52.7948412,-2.0850189],[52.7947476,-2.0850393]]]},{"street":"Buckingham Close","routeId":"J","res":7,"segments":[[[52.7954434,-2.0847093],[52.7956765,-2.084721]]]},{"street":"Chartwell Road","routeId":"J","res":19,"segments":[[[52.7956696,-2.0857656],[52.7955369,-2.0853284],[52.7954111,-2.0848666],[52.7954434,-2.0847093],[52.7954205,-2.0835236]]]},{"street":"Osborne Crescent","routeId":"J","res":26,"segments":[[[52.7941668,-2.0881193],[52.7940737,-2.0880751],[52.7939858,-2.0879854],[52.7939294,-2.0878239],[52.7938943,-2.0875932],[52.7938918,-2.0874261],[52.7938883,-2.0872954],[52.79388,-2.0871718],[52.7938283,-2.0870849],[52.7937572,-2.0870581],[52.7937026,-2.0870624],[52.7935468,-2.0870434]],[[52.7947755,-2.0873672],[52.7946323,-2.0876538],[52.7945323,-2.0878982],[52.7944869,-2.0879968],[52.7944096,-2.0880756],[52.7943185,-2.0881301],[52.7942433,-2.0881346],[52.7941668,-2.0881193]]]},{"street":"Westminster Close","routeId":"J","res":11,"segments":[[[52.7946234,-2.0869206],[52.7944927,-2.0869118],[52.7943638,-2.0868651],[52.7942738,-2.086795],[52.7941925,-2.0866899]]]},{"street":"Radford Rise","routeId":"K","res":31,"segments":[[[52.7920127,-2.0888631],[52.7920928,-2.0887764],[52.7922832,-2.088566],[52.7925617,-2.0883163],[52.792786,-2.0881389]],[[52.792786,-2.0881389],[52.7929607,-2.0880171],[52.7931038,-2.0879397]],[[52.792786,-2.0881389],[52.7927514,-2.0878546],[52.7926594,-2.0868621],[52.7925386,-2.0855593],[52.7924622,-2.0852229],[52.7923392,-2.08497],[52.7922161,-2.0848837],[52.7919484,-2.0848095],[52.7915082,-2.0846874],[52.7911026,-2.0844807],[52.7910584,-2.0844487],[52.7910116,-2.0844046],[52.7909814,-2.084387],[52.790944,-2.0843794],[52.7908751,-2.0843878]]]},{"street":"Sandringham Close","routeId":"K","res":17,"segments":[[[52.7936935,-2.0843052],[52.7937624,-2.0845622],[52.7938613,-2.084787],[52.793999,-2.0849243],[52.7941421,-2.0850586],[52.7942127,-2.0853419],[52.7941862,-2.0855931]]]},{"street":"Sandringham Road","routeId":"K","res":58,"segments":[[[52.7935468,-2.0870434],[52.7935089,-2.0866433],[52.793449,-2.0861583],[52.7934011,-2.0856075],[52.7933771,-2.0851225],[52.7933652,-2.0848411],[52.7934131,-2.084648],[52.7934909,-2.0845237],[52.7936346,-2.084392],[52.7936935,-2.0843052],[52.7937184,-2.0842603],[52.7937723,-2.0840447],[52.7938104,-2.0834453]],[[52.793286,-2.0886779],[52.7933951,-2.0886791],[52.7935029,-2.0886791],[52.7935867,-2.0886252],[52.7936117,-2.088483],[52.7936107,-2.088327],[52.7935551,-2.0881118],[52.7935102,-2.0879448],[52.793519,-2.0877727],[52.7935427,-2.0875647],[52.7935438,-2.0873974],[52.7935468,-2.0870434]]]},{"street":"Shawms Crest","routeId":"K","res":8,"segments":[[[52.7930303,-2.0887098],[52.7929747,-2.088974],[52.7929138,-2.088989],[52.792615,-2.0888119],[52.7925749,-2.0886988],[52.7925617,-2.0883163]]]},{"street":"Malvern Close","routeId":"L","res":16,"segments":[[[52.7967735,-2.0951385],[52.7965588,-2.0950926],[52.7964352,-2.0951366],[52.796274,-2.0951262],[52.7961989,-2.0950589],[52.7961622,-2.0948729]]]},{"street":"Repton Close","routeId":"L","res":15,"segments":[[[52.7964312,-2.0965491],[52.79616,-2.0960373]]]},{"street":"Benenden Close","routeId":"L","res":28,"segments":[[[52.7954804,-2.0942809],[52.7956643,-2.0946034],[52.7957068,-2.0947876],[52.7957068,-2.0949926],[52.7956655,-2.0951479],[52.7955829,-2.0952866],[52.795494,-2.095446]]]},{"street":"Eton Close","routeId":"L","res":14,"segments":[[[52.7955664,-2.0966048],[52.7956825,-2.0962016],[52.7957054,-2.0960373]]]},{"street":"Lancing Avenue","routeId":"L","res":25,"segments":[[[52.7948833,-2.0949373],[52.7947499,-2.0946435],[52.794596,-2.0941851],[52.7945855,-2.0940848],[52.7944322,-2.0939789],[52.7943173,-2.0939708],[52.7941681,-2.0940557],[52.7939652,-2.0943104]]]},{"street":"Ludgrove Way","routeId":"L","res":25,"segments":[[[52.794427,-2.0951543],[52.7943082,-2.0951539],[52.7942039,-2.0952313]],[[52.7947499,-2.0946435],[52.7945036,-2.0949913],[52.794427,-2.0951543]]]},{"street":"Roedean Avenue","routeId":"L","res":23,"segments":[[[52.794427,-2.0951543],[52.7944153,-2.0953484],[52.7944615,-2.0955656],[52.7945075,-2.0957178],[52.7946132,-2.0959068]]]},{"street":"The Glade","routeId":"L","res":13,"segments":[[[52.7947085,-2.0978503],[52.7947752,-2.0976937],[52.7948312,-2.0975623],[52.7949337,-2.0973642],[52.7950787,-2.0972241]],[[52.794847,-2.0979666],[52.7947085,-2.0978503]],[[52.7947085,-2.0978503],[52.794633,-2.097791]]]},{"street":"Queensville","routeId":"L","res":80,"segments":[[[52.793921,-2.0967066],[52.7937061,-2.0964539],[52.7935598,-2.0961563],[52.7934519,-2.0958361],[52.7933132,-2.0953138],[52.7932585,-2.0950844],[52.7932197,-2.0948948],[52.7931612,-2.0946084],[52.7931348,-2.0944749],[52.7930936,-2.0942669],[52.793014,-2.0938715],[52.7929568,-2.0935685]],[[52.7942125,-2.0970911],[52.7941277,-2.0969387],[52.7941085,-2.096909],[52.7940789,-2.0968632],[52.7940042,-2.0967455],[52.793921,-2.0967066]],[[52.793921,-2.0967066],[52.793971,-2.096851],[52.7940023,-2.0969077],[52.7940402,-2.0969763],[52.794082,-2.0970663],[52.794114,-2.0971761],[52.7941415,-2.0973633],[52.7941514,-2.0975412],[52.7941618,-2.0976142]],[[52.796593,-2.1007619],[52.7965193,-2.1006229],[52.7963082,-2.1002016],[52.7961066,-2.0997971],[52.7958309,-2.0993763],[52.7954525,-2.0988031],[52.7952378,-2.0984648],[52.7950945,-2.0984348]]]},{"street":"Queensville Bridge","routeId":"L","res":7,"segments":[[[52.796409,-2.1009172],[52.7963913,-2.1008885],[52.7961631,-2.1004723],[52.7958301,-2.0998282],[52.7953888,-2.0989715],[52.7953093,-2.0988243],[52.7952902,-2.0987896]],[[52.7951175,-2.0984765],[52.7950945,-2.0984348]],[[52.79665,-2.1012209],[52.7966485,-2.1012195]]]},{"street":"Charterhouse Avenue","routeId":"L","res":27,"segments":[[[52.796579,-2.094043],[52.7966755,-2.0938287],[52.796916,-2.0934622],[52.7970431,-2.0932423],[52.7971132,-2.0930538],[52.7971817,-2.0928147],[52.7972674,-2.0925251]],[[52.797222,-2.092443],[52.7972674,-2.0925251]],[[52.7972674,-2.0925251],[52.7973355,-2.0925457]]]},{"street":"Denstone Avenue","routeId":"L","res":19,"segments":[[[52.796916,-2.0934622],[52.7966762,-2.0931238]],[[52.7966762,-2.0931238],[52.7966078,-2.0929754],[52.7965475,-2.0923687]],[[52.7966762,-2.0931238],[52.7965035,-2.0933208]],[[52.7965034,-2.092359],[52.7965475,-2.0923687]],[[52.7965475,-2.0923687],[52.7965943,-2.0923348]]]},{"street":"Ardingley Avenue","routeId":"L","res":16,"segments":[[[52.7959683,-2.0938687],[52.7959459,-2.0934419],[52.7959246,-2.0931024],[52.7958896,-2.0928726]]]}]}};
 
-const map = L.map('map', { zoomControl: false, attributionControl: true });
+const LEG_COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#0fa3b1', '#f032e6', '#9a6324', '#469990', '#d4a000'];
+const KIND_LABEL = { walk: 'Walk', hybrid: 'Hybrid (drive + walk)', drive: 'Drive-to' };
+const TILE_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_32cj_1_90b7918b630fcb520359e0bc';
+const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
-// CARTO Basemaps API key (free tier, 5M tile requests/month) -- removes
-// the "API key required" watermark. From carto.com/basemaps/apikey; keep
-// CARTO/OSM attribution visible per the free-tier terms.
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_32cj_1_90b7918b630fcb520359e0bc', {
-  subdomains: 'abcd',
-  maxZoom: 19,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-}).addTo(map);
+const state = { ward: null, route: null, view: 'app', plan: null, sel: null, done: new Set() };
+let appMap = null, printMap = null;
 
-for (const r of roads) {
-  L.polyline(r.coords, { color: '#d64545', weight: 4.5, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const legColor = n => LEG_COLORS[(n - 1) % LEG_COLORS.length];
+const homesText = h => (h < 0.5 ? 'nothing to deliver' : `~${Math.round(h)} home${Math.round(h) === 1 ? '' : 's'}`);
+const metres = m => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 10) * 10} m`);
+
+function tint(hex, amount = 0.85) {
+  const h = hex.replace('#', '');
+  const t = v => Math.round(v + (255 - v) * amount);
+  return `rgb(${t(parseInt(h.slice(0, 2), 16))},${t(parseInt(h.slice(2, 4), 16))},${t(parseInt(h.slice(4, 6), 16))})`;
 }
 
-L.marker(startPoint, {
-  icon: L.divIcon({ className: 'start-dot', iconSize: [14, 14] }),
-}).addTo(map).bindTooltip('Angel Inn (start)', { permanent: false });
-
-const allPts = roads.flatMap(r => r.coords).concat([startPoint]);
-map.fitBounds(L.latLngBounds(allPts), { padding: [24, 24] });
-
-// Screen-space bearing at the map's current zoom/projection -- exactly
-// right for a print sheet, since it's rendered once at a fixed fitBounds
-// and never re-panned/zoomed afterwards (unlike an interactive map, where
-// this would need recomputing on every zoom change).
-function labelAngleDeg(a, b) {
-  const pa = map.latLngToLayerPoint(a), pb = map.latLngToLayerPoint(b);
-  let angle = Math.atan2(pb.y - pa.y, pb.x - pa.x) * 180 / Math.PI;
-  if (angle > 90) angle -= 180;
-  if (angle < -90) angle += 180;
-  return angle;
+// ---- Data plumbing ----------------------------------------------------------
+function routeContext(wardKey, routeId) {
+  const d = WARDS[wardKey];
+  const meta = d.routesMeta[routeId];
+  const roads = d.roads.filter(r => r.routeId === routeId);
+  const hub = (meta.hubId && d.hubs.find(h => h.id === meta.hubId)) || d.start;
+  const start = meta.marker
+    ? { latlng: [meta.marker.point[1], meta.marker.point[0]], label: meta.marker.label, kind: 'parking' }
+    : { latlng: [hub.lat, hub.lon], label: hub.label, kind: 'hub' };
+  const color = Colors.routeColors(Object.keys(d.routesMeta))[routeId];
+  return { d, meta, roads, start, color };
 }
 
-function addRoadLabel(r) {
-  const mid = Math.floor((r.coords.length - 1) / 2);
-  const a = r.coords[mid], b = r.coords[mid + 1] || r.coords[mid - 1];
-  const angle = labelAngleDeg(L.latLng(a), L.latLng(b));
-  // The trailing translate runs BEFORE rotate in the composed matrix (CSS
-  // applies transform functions right-to-left), so it shifts the label a
-  // fixed distance "up" in its own pre-rotation frame -- after rotate()
-  // carries that frame around, the offset ends up perpendicular to the
-  // road at whatever angle it's drawn, not just for horizontal roads.
-  const transform = `translate(-50%,-50%) rotate(${angle}deg) translate(0,-9px)`;
-  const icon = L.divIcon({
-    className: '',
-    html: `<span class="road-label" style="transform:${transform}">${r.name}</span>`,
-    iconSize: [0, 0],
+function fillWardSelect() {
+  const sel = document.getElementById('wardSel');
+  sel.innerHTML = Object.keys(WARDS).map(k => `<option value="${k}">${esc(WARDS[k].ward)} ward</option>`).join('');
+}
+function fillRouteSelect() {
+  const d = WARDS[state.ward];
+  const sel = document.getElementById('routeSel');
+  sel.innerHTML = Object.values(d.routesMeta).map(m =>
+    `<option value="${m.id}">Route ${m.id} · ${esc(m.name)} (${m.kind})</option>`).join('');
+  sel.value = state.route;
+}
+
+function readHash() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  const wards = Object.keys(WARDS);
+  state.ward = wards.includes(p.get('ward')) ? p.get('ward') : wards[0];
+  const ids = Object.keys(WARDS[state.ward].routesMeta);
+  state.route = ids.includes(p.get('route')) ? p.get('route') : ids[0];
+  state.view = p.get('view') === 'print' ? 'print' : 'app';
+}
+function writeHash() {
+  history.replaceState(null, '', `#ward=${state.ward}&route=${state.route}&view=${state.view}`);
+}
+
+// ---- Map drawing (shared by the app and the print sheet) -------------------
+// Legs are drawn offset to the LEFT of the direction of travel, i.e. on the
+// pavement being walked, so a road's two sides read as two parallel lines.
+function offsetLatLngs(map, latlngs, px) {
+  const pts = latlngs.map(ll => map.latLngToLayerPoint(ll));
+  const normal = (p, q) => {
+    const dx = q.x - p.x, dy = q.y - p.y, L = Math.hypot(dx, dy);
+    return L ? [dy / L, -dx / L] : null; // left of travel, screen coords (y down)
+  };
+  return pts.map((p, i) => {
+    const n1 = i > 0 ? normal(pts[i - 1], p) : null;
+    const n2 = i < pts.length - 1 ? normal(p, pts[i + 1]) : null;
+    let nx = (n1 ? n1[0] : 0) + (n2 ? n2[0] : 0), ny = (n1 ? n1[1] : 0) + (n2 ? n2[1] : 0);
+    const L = Math.hypot(nx, ny);
+    if (!L) return latlngs[i];
+    nx /= L; ny /= L;
+    const ref = n1 || n2;
+    const miter = 1 / Math.max(0.5, ref[0] * nx + ref[1] * ny);
+    return map.layerPointToLatLng([p.x + nx * px * miter, p.y + ny * px * miter]);
   });
-  L.marker(a, { icon, interactive: false, keyboard: false }).addTo(map);
 }
 
-map.whenReady(() => { roads.forEach(addRoadLabel); });
-map.on('load', () => console.log('Map fully loaded — safe to print.'));
-</script>
+// Points spaced along a polyline in screen space: [{latlng, angle}].
+function pointsAlong(map, latlngs, fractions) {
+  const pts = latlngs.map(ll => map.latLngToLayerPoint(ll));
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
+  const total = cum[cum.length - 1];
+  return fractions.map(f => {
+    const s = f * total;
+    let i = 1;
+    while (i < pts.length - 1 && cum[i] < s) i++;
+    const a = pts[i - 1], b = pts[i];
+    const t = (s - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1);
+    return {
+      latlng: map.layerPointToLatLng([a.x + t * (b.x - a.x), a.y + t * (b.y - a.y)]),
+      angle: Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI,
+      px: total,
+    };
+  });
+}
 
+function screenLength(map, latlngs) {
+  let s = 0;
+  for (let i = 1; i < latlngs.length; i++) s += map.latLngToLayerPoint(latlngs[i]).distanceTo(map.latLngToLayerPoint(latlngs[i - 1]));
+  return s;
+}
+
+function makeMap(el, { interactive }) {
+  const map = L.map(el, { zoomControl: interactive, attributionControl: true, zoomSnap: interactive ? 1 : 0.25 });
+  map.tiles = L.tileLayer(TILE_URL, { subdomains: 'abcd', maxZoom: 19, attribution: TILE_ATTR }).addTo(map);
+  map.staticLayer = L.layerGroup().addTo(map);
+  map.legLayer = L.layerGroup().addTo(map);
+  return map;
+}
+
+function drawStatic(map, ctx, plan, { labels }) {
+  map.staticLayer.clearLayers();
+  // Road centrelines, faint, so the offset pavement lines visibly sit either side.
+  for (const r of ctx.roads) for (const seg of r.segments) {
+    L.polyline(seg, { color: '#6b7178', weight: 1.5, opacity: 0.45, interactive: false }).addTo(map.staticLayer);
+  }
+  for (const l of plan.legs) {
+    if (l.type !== 'transfer') continue;
+    L.polyline(l.latlngs, { color: '#15181d', weight: 2.5, opacity: 0.7, dashArray: '2 7', lineCap: 'round', interactive: false }).addTo(map.staticLayer);
+  }
+  const s = ctx.start;
+  const icon = s.kind === 'parking'
+    ? L.divIcon({ className: '', html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:${ctx.color};border:2.5px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.3)"></span>`, iconSize: [14, 14] })
+    : L.divIcon({ className: 'start-dot', iconSize: [14, 14] });
+  L.marker(s.latlng, { icon, keyboard: false }).addTo(map.staticLayer)
+    .bindTooltip(esc((s.kind === 'parking' ? 'Park: ' : 'Start: ') + s.label));
+  if (labels) {
+    // One label per street on the print sheet (tiles often skip small closes).
+    const seen = new Set();
+    for (const l of plan.legs) {
+      if (l.type !== 'leg' || seen.has(l.street)) continue;
+      seen.add(l.street);
+      const [p] = pointsAlong(map, l.latlngs, [0.5]);
+      let angle = p.angle;
+      if (angle > 90) angle -= 180;
+      if (angle < -90) angle += 180;
+      const html = `<span class="road-label" style="transform:translate(-50%,-50%) rotate(${angle}deg) translate(0,-13px)">${esc(l.street)}</span>`;
+      L.marker(p.latlng, { icon: L.divIcon({ className: '', html, iconSize: [0, 0] }), interactive: false, keyboard: false }).addTo(map.staticLayer);
+    }
+  }
+}
+
+function drawLegs(map, plan, { sel = null, done = new Set(), offsetPx = 4, onPick = null } = {}) {
+  map.legLayer.clearLayers();
+  const legs = plan.legs.filter(l => l.type === 'leg');
+  const order = [...legs].sort((a, b) => (a.n === sel) - (b.n === sel)); // selected on top
+  for (const l of order) {
+    const isSel = l.n === sel, isDone = done.has(l.n);
+    const color = isDone ? '#9aa0a6' : legColor(l.n);
+    const faded = sel != null && !isSel;
+    const line = offsetLatLngs(map, l.latlngs, offsetPx);
+    const pl = L.polyline(line, {
+      color, weight: isSel ? 6 : 4, opacity: faded ? 0.35 : 0.95, lineCap: 'round', lineJoin: 'round',
+    }).addTo(map.legLayer);
+    if (onPick) pl.on('click', () => onPick(l.n));
+    // Direction arrows every ~60px of screen length (at least one).
+    const len = screenLength(map, line);
+    const k = Math.max(1, Math.floor(len / 60));
+    const fr = Array.from({ length: k }, (_, i) => (i + 0.5) / k);
+    for (const p of pointsAlong(map, line, fr)) {
+      if (len < 14) break;
+      L.marker(p.latlng, {
+        icon: L.divIcon({ className: '', html: `<div class="leg-arrow" style="transform:rotate(${p.angle}deg);opacity:${faded ? 0.5 : 1}"></div>`, iconSize: [0, 0] }),
+        interactive: false, keyboard: false,
+      }).addTo(map.legLayer);
+    }
+  }
+  // Number badges last so they sit above every line.
+  for (const l of order) {
+    const line = offsetLatLngs(map, l.latlngs, offsetPx);
+    const [p] = pointsAlong(map, line, [Math.min(0.3, 18 / Math.max(screenLength(map, line), 1))]);
+    const color = done.has(l.n) ? '#9aa0a6' : legColor(l.n);
+    const faded = sel != null && l.n !== sel;
+    const m = L.marker(p.latlng, {
+      icon: L.divIcon({ className: '', html: `<div class="leg-num" style="background:${color};opacity:${faded ? 0.55 : 1}">${l.n}</div>`, iconSize: [0, 0] }),
+      keyboard: false, zIndexOffset: l.n === sel ? 1000 : 0,
+    }).addTo(map.legLayer);
+    if (onPick) m.on('click', () => onPick(l.n));
+  }
+}
+
+function fitRoute(map, ctx, plan, pad) {
+  const pts = plan.legs.flatMap(l => l.latlngs).concat([ctx.start.latlng]);
+  map.fitBounds(L.latLngBounds(pts), { padding: [pad, pad] });
+}
+
+// ---- App view ---------------------------------------------------------------
+function renderApp(ctx) {
+  const { meta, color } = ctx;
+  const plan = state.plan, st = plan.stats;
+  const legs = plan.legs.filter(l => l.type === 'leg');
+  const doneHomes = legs.filter(l => state.done.has(l.n)).reduce((s, l) => s + l.homes, 0);
+  document.getElementById('panelHead').innerHTML = `
+    <div class="route-badge"><div class="route-swatch" style="background:${color}"></div><div class="route-num">Route ${esc(meta.id)}</div></div>
+    <div class="route-title">${esc(meta.name)}</div>
+    <div class="tag-row">
+      <span class="tag">${KIND_LABEL[meta.kind]}</span>
+      <span class="tag">${Math.round(st.homes)} homes</span>
+      <span class="tag">${metres(st.walkM + st.transferM)} walk</span>
+      <span class="tag">${st.legs} steps</span>
+      <span class="tag">${st.crossings} crossings</span>
+    </div>
+    <div class="rule">Keep the <b>road on your right</b>. The letterboxes you're doing are on your <b>left</b>. Only cross where a step tells you to.</div>
+    <div class="progress"><span>${state.done.size} of ${legs.length} steps done</span><span>~${Math.round(doneHomes)} of ${Math.round(st.homes)} homes</span></div>`;
+
+  const list = document.getElementById('steps');
+  list.innerHTML = legs.map(l => `
+    <li class="step${state.sel === l.n ? ' sel' : ''}${state.done.has(l.n) ? ' done' : ''}" data-n="${l.n}">
+      <div class="num" style="background:${state.done.has(l.n) ? '#9aa0a6' : legColor(l.n)}">${l.n}</div>
+      <div>
+        <div class="step-street">${esc(l.street)} <span class="step-side">· ${esc(l.side)}</span></div>
+        <div class="step-cue">${esc(l.cue)}</div>
+        <div class="step-meta">${homesText(l.homes)} · ${metres(l.len)}</div>
+      </div>
+      <div class="step-right">
+        <div class="step-dir">${l.dir ? `walk ${l.dir} →` : 'walk round'}</div>
+        <button class="tick" aria-label="Mark step ${l.n} done">✓</button>
+      </div>
+    </li>`).join('') + (legs.length ? `<li class="finish">🏁 ${esc(legs[legs.length - 1].endCue || '')}</li>` : '');
+
+  list.querySelectorAll('.step').forEach(li => {
+    const n = +li.dataset.n;
+    li.addEventListener('click', () => selectStep(n, true));
+    li.querySelector('.tick').addEventListener('click', ev => {
+      ev.stopPropagation();
+      if (state.done.has(n)) state.done.delete(n);
+      else {
+        state.done.add(n);
+        const nextLeg = legs.find(l => l.n > n && !state.done.has(l.n));
+        if (nextLeg) { selectStep(nextLeg.n, true); return; }
+      }
+      renderApp(ctx);
+      redrawAppLegs();
+    });
+  });
+}
+
+function redrawAppLegs() {
+  if (!appMap || !state.plan) return;
+  drawLegs(appMap, state.plan, { sel: state.sel, done: state.done, offsetPx: 4, onPick: n => selectStep(n, true, true) });
+}
+
+function selectStep(n, zoom, fromMap) {
+  const ctx = routeContext(state.ward, state.route);
+  state.sel = state.sel === n && !zoom ? null : n;
+  renderApp(ctx);
+  redrawAppLegs();
+  const leg = state.plan.legs.find(l => l.n === n);
+  if (zoom && leg && !fromMap) appMap.flyToBounds(L.latLngBounds(leg.latlngs), { padding: [60, 60], maxZoom: 18, duration: 0.5 });
+  const li = document.querySelector(`.step[data-n="${n}"]`);
+  if (li) li.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function showApp(ctx) {
+  if (!appMap) {
+    appMap = makeMap('appMap', { interactive: true });
+    appMap.on('zoomend', redrawAppLegs);
+  }
+  appMap.invalidateSize();
+  drawStatic(appMap, ctx, state.plan, { labels: false });
+  fitRoute(appMap, ctx, state.plan, 30);
+  renderApp(ctx);
+  redrawAppLegs();
+}
+
+// ---- Print view ------------------------------------------------------------
+function showPrint(ctx) {
+  const { meta, color, d } = ctx;
+  const plan = state.plan, st = plan.stats;
+  const legs = plan.legs.filter(l => l.type === 'leg');
+  const startLine = ctx.start.kind === 'parking'
+    ? `Park on ${esc(ctx.start.label)} (suggested, please use your own discretion). It's the coloured dot on the map.`
+    : `${esc(ctx.start.label)} (event start point). It's the black dot on the map.`;
+  document.getElementById('sheet').innerHTML = `
+    <div class="route-titlebar" style="background:${tint(color)}">
+      <div>
+        <div class="route-id" style="color:${color}">Route ${esc(meta.id)}</div>
+        <div class="route-name">${esc(meta.name)}</div>
+        <div class="route-subtitle">${esc(d.ward)} Ward · Leaflet Delivery Round Sheet</div>
+      </div>
+      <div class="route-titlebar-right">
+        <div class="route-kind">${KIND_LABEL[meta.kind]}</div>
+        <div>${metres(st.walkM + st.transferM)} walk · ${st.legs} steps · ${st.crossings} crossings</div>
+        <div class="route-res">${Math.round(st.homes)} estimated residences</div>
+      </div>
+    </div>
+    <div class="route-map"><div id="printMap"></div></div>
+    <div class="map-key">Numbers give the order. Arrows show which way to walk. Each coloured line is drawn on the side of the road you'll be on, so a road done both ways shows two lines. Dotted line = walk there, nothing to deliver.</div>
+    <div class="print-rule"><b>Start:</b> ${startLine}<br>
+      <b>Golden rule:</b> keep the road on your right. The letterboxes you're doing are on your left. Only cross where a step tells you to. Tick each step off as you go.</div>
+    <table class="dirs">
+      <thead><tr><th style="width:20px"></th><th style="width:28px">#</th><th style="width:170px">Street &amp; side</th><th>What to do</th><th style="width:44px;text-align:right">Homes</th></tr></thead>
+      <tbody>
+        ${legs.map(l => `<tr>
+          <td><div class="box"></div></td>
+          <td><div class="num" style="background:${legColor(l.n)}">${l.n}</div></td>
+          <td><span class="st">${esc(l.street)}</span><br><span class="sd">${esc(l.side)}${l.dir ? ` · walk ${l.dir}` : ''}</span></td>
+          <td>${esc(l.cue)}</td>
+          <td class="hm">${l.homes < 0.5 ? '—' : Math.round(l.homes)}</td>
+        </tr>`).join('')}
+        ${legs.length ? `<tr class="finish-row"><td></td><td>🏁</td><td colspan="3">${esc(legs[legs.length - 1].endCue || '')}</td></tr>` : ''}
+      </tbody>
+    </table>`;
+
+  if (printMap) { printMap.remove(); printMap = null; }
+  printMap = makeMap('printMap', { interactive: false });
+  const btn = document.getElementById('printBtn');
+  btn.disabled = true; btn.textContent = 'Loading map…';
+  const ready = () => { btn.disabled = false; btn.textContent = 'Print / Save as PDF'; };
+  printMap.tiles.once('load', ready);
+  setTimeout(ready, 8000); // fallback if a tile request stalls
+  fitRoute(printMap, ctx, plan, 22);
+  drawStatic(printMap, ctx, plan, { labels: true });
+  drawLegs(printMap, plan, { offsetPx: 3.5 });
+}
+
+// ---- Wiring ------------------------------------------------------------------
+function render() {
+  const ctx = routeContext(state.ward, state.route);
+  state.plan = WalkOrder.plan({ roads: ctx.roads }, { start: ctx.start });
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === state.view));
+  document.getElementById('appView').hidden = state.view !== 'app';
+  document.getElementById('printView').hidden = state.view !== 'print';
+  document.getElementById('printBtn').hidden = state.view !== 'print';
+  writeHash();
+  if (state.view === 'app') showApp(ctx); else showPrint(ctx);
+}
+
+function resetRouteState() { state.sel = null; state.done = new Set(); }
+
+readHash();
+fillWardSelect();
+document.getElementById('wardSel').value = state.ward;
+fillRouteSelect();
+document.getElementById('wardSel').addEventListener('change', e => {
+  state.ward = e.target.value;
+  state.route = Object.keys(WARDS[state.ward].routesMeta)[0];
+  resetRouteState();
+  fillRouteSelect();
+  render();
+});
+document.getElementById('routeSel').addEventListener('change', e => { state.route = e.target.value; resetRouteState(); render(); });
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => { state.view = b.dataset.view; render(); }));
+render();
+</script>
 </body></html>
