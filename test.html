@@ -99,7 +99,15 @@
   .route-kind { font-size: 13px; font-weight: 700; color: #15181d; }
   .route-res { font-size: 11.5px; font-weight: 700; margin-top: 2px; color: #15181d; }
   .route-map { width: 100%; border: 1px solid #eee; border-radius: 8px; overflow: hidden; aspect-ratio: 3/2; margin-top: 12px; }
-  #printMap { width: 100%; height: 100%; background: #fbfbf9; }
+  .route-map.overview { aspect-ratio: 2/1; }
+  .print-map { width: 100%; height: 100%; background: #fbfbf9; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .detail { break-inside: avoid; }
+  .detail .route-map { aspect-ratio: 1/1; margin-top: 4px; }
+  .detail-cap { font-size: 11.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+  .panel-tag { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 4px; color: #fff; font-size: 11px; font-weight: 800; }
+  table.dirs tr.panel-row td { background: #f6f6f6; font-weight: 700; font-size: 10.5px; padding: 5px; border-bottom: 1px solid #ddd; }
+  .panel-box-label { font-size: 12px; font-weight: 800; color: #fff; padding: 1px 6px; border-radius: 4px; white-space: nowrap; transform: translate(-2px, -110%); display: inline-block; }
   .map-key { font-size: 9.5px; color: #6b7178; font-style: italic; margin: 5px 2px 8px; }
   .print-rule { font-size: 11.5px; background: #f6f6f6; border-radius: 8px; padding: 7px 10px; margin-bottom: 8px; line-height: 1.5; }
   table.dirs { width: 100%; border-collapse: collapse; font-size: 10.5px; line-height: 1.4; }
@@ -119,7 +127,7 @@
     .no-print, #appView { display: none !important; }
     #printView { display: block !important; padding: 0; }
     .sheet { margin: 0; width: auto; min-height: 0; padding: 0; }
-    .num, .leg-num, .route-titlebar { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .num, .leg-num, .route-titlebar, .panel-tag, .panel-box-label, table.dirs tr.panel-row td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
 </style></head><body>
 
@@ -200,7 +208,7 @@ const TILE_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png
 const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
 const state = { ward: null, route: null, view: 'app', startMode: 'route', me: null, plan: null, sel: null, done: new Set() };
-let appMap = null, printMap = null;
+let appMap = null, printMaps = [];
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const legColor = n => LEG_COLORS[(n - 1) % LEG_COLORS.length];
@@ -309,7 +317,7 @@ function makeMap(el, { interactive }) {
   return map;
 }
 
-function drawStatic(map, ctx, plan, { labels }) {
+function drawStatic(map, ctx, plan, { labels, only = null }) {
   map.staticLayer.clearLayers();
   // Road centrelines, faint, so the offset pavement lines visibly sit either side.
   for (const r of ctx.roads) for (const seg of r.segments) {
@@ -339,7 +347,7 @@ function drawStatic(map, ctx, plan, { labels }) {
     // One label per street on the print sheet (tiles often skip small closes).
     const seen = new Set();
     for (const l of plan.legs) {
-      if (l.type !== 'leg' || seen.has(l.street)) continue;
+      if (l.type !== 'leg' || seen.has(l.street) || (only && !only.has(l.n))) continue;
       seen.add(l.street);
       const [p] = pointsAlong(map, l.latlngs, [0.5]);
       let angle = p.angle;
@@ -351,9 +359,17 @@ function drawStatic(map, ctx, plan, { labels }) {
   }
 }
 
-function drawLegs(map, plan, { sel = null, done = new Set(), offsetPx = 4, onPick = null } = {}) {
+function drawLegs(map, plan, { sel = null, done = new Set(), offsetPx = 4, onPick = null, only = null } = {}) {
   map.legLayer.clearLayers();
-  const legs = plan.legs.filter(l => l.type === 'leg');
+  let legs = plan.legs.filter(l => l.type === 'leg');
+  if (only) {
+    // A split print map: other steps are faint context only, no numbers or arrows.
+    for (const l of legs) {
+      if (only.has(l.n)) continue;
+      L.polyline(offsetLatLngs(map, l.latlngs, offsetPx), { color: '#9aa0a6', weight: 2.5, opacity: 0.55, interactive: false }).addTo(map.legLayer);
+    }
+    legs = legs.filter(l => only.has(l.n));
+  }
   const order = [...legs].sort((a, b) => (a.n === sel) - (b.n === sel)); // selected on top
   for (const l of order) {
     const isSel = l.n === sel, isDone = done.has(l.n);
@@ -478,14 +494,148 @@ function showApp(ctx) {
 }
 
 // ---- Print view ------------------------------------------------------------
+// One map works until the step numbers start piling up -- typically a route
+// made of two areas far apart, where fitting both shrinks each to nothing.
+// Then the steps are split into consecutive ranges ("Map A: steps 1-2",
+// "Map B: steps 3-19"), each with its own zoomed map, and the top map
+// becomes a key showing where each one is.
+const SHEET_W = 688;                    // printable width of the sheet in CSS px
+const OVERVIEW = [SHEET_W, SHEET_W / 1.5];
+const DETAIL = [(SHEET_W - 10) / 2, (SHEET_W - 10) / 2];
+const CROWD_PX = 14;                    // badge centres closer than this sit on top of each other
+const CROWD_FRAC = 0.2;                 // share of badges overlapping that counts as crowded
+const MAX_PANELS = 4;
+const PANEL_COLORS = ['#1a73e8', '#e8710a', '#188038', '#a142f4'];
+
+function fitZoom(latlngs, [w, h], pad = 22) {
+  const b = L.latLngBounds(latlngs), crs = L.CRS.EPSG3857;
+  const p1 = crs.latLngToPoint(b.getNorthWest(), 0), p2 = crs.latLngToPoint(b.getSouthEast(), 0);
+  const scale = Math.min((w - 2 * pad) / Math.max(p2.x - p1.x, 1e-9), (h - 2 * pad) / Math.max(p2.y - p1.y, 1e-9));
+  return Math.min(18, Math.floor(Math.log2(scale) * 4) / 4);
+}
+
+// Share of step badges that would overlap another one if these legs were fitted into a map of `size`.
+function crowdFrac(legs, size) {
+  if (legs.length < 2) return 0;
+  const z = fitZoom(legs.flatMap(l => l.latlngs), size), crs = L.CRS.EPSG3857;
+  const badges = legs.map(l => {
+    const pts = l.latlngs.map(ll => crs.latLngToPoint(L.latLng(ll), z));
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) len += pts[i].distanceTo(pts[i - 1]);
+    let target = Math.min(0.3 * len, 18);
+    for (let i = 1; i < pts.length; i++) {
+      const seg = pts[i].distanceTo(pts[i - 1]);
+      if (target <= seg) return pts[i - 1].add(pts[i].subtract(pts[i - 1]).multiplyBy(seg ? target / seg : 0));
+      target -= seg;
+    }
+    return pts[pts.length - 1];
+  });
+  let crowded = 0;
+  badges.forEach((p, i) => { if (badges.some((q, j) => j !== i && p.distanceTo(q) < CROWD_PX)) crowded++; });
+  return crowded / legs.length;
+}
+
+// Size of the square needed to show these legs (projected units) -- what a split tries to shrink.
+function spanOf(legs) {
+  const b = L.latLngBounds(legs.flatMap(l => l.latlngs)), crs = L.CRS.EPSG3857;
+  const p1 = crs.latLngToPoint(b.getNorthWest(), 0), p2 = crs.latLngToPoint(b.getSouthEast(), 0);
+  return Math.max(p2.x - p1.x, p2.y - p1.y);
+}
+
+// Maps cover consecutive runs of steps, so a volunteer works through Map A,
+// then Map B, and so on. Grouping purely by location was tried and gave
+// tidier boxes but step lists like "1, 7, 16, 19-20", which are harder to follow.
+function splitRun(p) {
+  // Keep at least two steps a side where possible -- a map for one step is a waste of paper.
+  const minSide = p.length >= 4 ? 2 : 1;
+  let bestI = minSide, bestSpan = Infinity;
+  for (let i = minSide; i <= p.length - minSide; i++) {
+    const sp = Math.max(spanOf(p.slice(0, i)), spanOf(p.slice(i)));
+    if (sp < bestSpan) { bestSpan = sp; bestI = i; }
+  }
+  return [p.slice(0, bestI), p.slice(bestI)];
+}
+
+function planPanels(legs) {
+  if (crowdFrac(legs, OVERVIEW) <= CROWD_FRAC) return null;
+  let parts = splitRun(legs); // crowded on one map, so at least two
+  while (parts.length < MAX_PANELS) {
+    let worst = -1, worstC = CROWD_FRAC;
+    parts.forEach((p, i) => {
+      if (p.length < 2) return;
+      const c = crowdFrac(p, DETAIL);
+      if (c > worstC) { worstC = c; worst = i; }
+    });
+    if (worst < 0) break;
+    parts.splice(worst, 1, ...splitRun(parts[worst]));
+  }
+  // Splitting one crowded run can leave neighbouring runs that would now fit
+  // on one map together; merge those back (tightest pair first) to keep maps few.
+  while (parts.length > 2) {
+    let best = -1, bestSpan = Infinity;
+    for (let i = 0; i + 1 < parts.length; i++) {
+      const merged = parts[i].concat(parts[i + 1]);
+      if (crowdFrac(merged, DETAIL) > CROWD_FRAC) continue;
+      const sp = spanOf(merged);
+      if (sp < bestSpan) { bestSpan = sp; best = i; }
+    }
+    if (best < 0) break;
+    parts.splice(best, 2, parts[best].concat(parts[best + 1]));
+  }
+  return parts.map((p, i) => ({
+    letter: String.fromCharCode(65 + i), color: PANEL_COLORS[i % PANEL_COLORS.length],
+    legs: p, only: new Set(p.map(l => l.n)), from: p[0].n,
+  }));
+}
+
+// "steps 3–19" (written generally, so it copes with any set of steps).
+function stepRange(pn) {
+  const ns = pn.legs.map(l => l.n), runs = [];
+  for (const n of ns) {
+    const last = runs[runs.length - 1];
+    if (last && n === last[1] + 1) last[1] = n; else runs.push([n, n]);
+  }
+  const txt = runs.map(([x, y]) => (x === y ? `${x}` : `${x}–${y}`)).join(', ');
+  return (ns.length === 1 ? 'step ' : 'steps ') + txt;
+}
+
+function drawOverviewKey(map, ctx, plan, panels) {
+  map.legLayer.clearLayers();
+  for (const pn of panels) {
+    for (const l of pn.legs) L.polyline(l.latlngs, { color: pn.color, weight: 4, opacity: 0.9, lineCap: 'round', interactive: false }).addTo(map.legLayer);
+    const b = L.latLngBounds(pn.legs.flatMap(l => l.latlngs)).pad(0.08);
+    L.rectangle(b, { color: pn.color, weight: 1.5, dashArray: '5 4', fill: false, interactive: false }).addTo(map.legLayer);
+    L.marker(b.getNorthWest(), {
+      icon: L.divIcon({ className: '', html: `<span class="panel-box-label" style="background:${pn.color}">Map ${pn.letter}</span>`, iconSize: [0, 0] }),
+      interactive: false, keyboard: false,
+    }).addTo(map.legLayer);
+  }
+}
+
 function showPrint(ctx) {
   const { meta, color, d } = ctx;
   const plan = state.plan, st = plan.stats;
   const legs = plan.legs.filter(l => l.type === 'leg');
+  const panels = legs.length ? planPanels(legs) : null;
   const startLine = !ctx.start ? `See step 1. The white dot on the map marks where to start walking.`
     : ctx.start.kind === 'parking' ? `Park on ${esc(ctx.start.label)} (suggested, please use your own discretion). It's the coloured dot on the map.`
     : ctx.start.kind === 'me' ? `From where you are (the blue dot on the map). Step 1 says where to walk to.`
     : `${esc(ctx.start.label)} (event start point). It's the black dot on the map.`;
+  const panelOf = n => panels && panels.find(pn => pn.only.has(n));
+  const legRow = l => `<tr>
+          <td><div class="box"></div></td>
+          <td><div class="num" style="background:${legColor(l.n)}">${l.n}</div></td>
+          <td><span class="st">${esc(l.street)}</span><br><span class="sd">${esc(l.side)}${l.dir ? ` · walk ${l.dir}` : ''}</span></td>
+          <td>${esc(l.cue)}</td>
+          <td class="hm">${l.homes < 0.5 ? '—' : Math.round(l.homes)}</td>
+        </tr>`;
+  const rows = legs.map(l => {
+    const pn = panelOf(l.n);
+    const head = pn && pn.from === l.n
+      ? `<tr class="panel-row"><td colspan="5"><span class="panel-tag" style="background:${pn.color}">Map ${pn.letter}</span> ${stepRange(pn)}</td></tr>` : '';
+    return head + legRow(l);
+  }).join('');
+
   document.getElementById('sheet').innerHTML = `
     <div class="route-titlebar" style="background:${tint(color)}">
       <div>
@@ -499,34 +649,52 @@ function showPrint(ctx) {
         <div class="route-res">${Math.round(st.homes)} estimated residences</div>
       </div>
     </div>
-    <div class="route-map"><div id="printMap"></div></div>
-    <div class="map-key">Numbers give the order. Arrows show which way to walk. Each coloured line is drawn on the side of the road you'll be on, so a road done both ways shows two lines. Dotted line = walk there, nothing to deliver.</div>
+    <div class="route-map${panels ? ' overview' : ''}"><div class="print-map" id="printMap"></div></div>
+    ${panels ? `<div class="detail-grid">${panels.map(pn => `
+      <div class="detail">
+        <div class="detail-cap"><span class="panel-tag" style="background:${pn.color}">Map ${pn.letter}</span> ${stepRange(pn)}</div>
+        <div class="route-map"><div class="print-map" id="printMap${pn.letter}"></div></div>
+      </div>`).join('')}</div>` : ''}
+    <div class="map-key">${panels
+      ? `The top map shows the whole route. The dashed boxes are Maps ${panels.map(pn => pn.letter).join(', ').replace(/, ([^,]*)$/, ' and $1')}, which zoom in on each part in walking order. `
+      : ''}Numbers give the order. Arrows show which way to walk. Each coloured line is drawn on the side of the road you'll be on, so a road done both ways shows two lines. Dotted line = walk there, nothing to deliver.</div>
     <div class="print-rule"><b>Start:</b> ${startLine}<br>
       <b>Golden rule:</b> keep the road on your right. The letterboxes you're doing are on your left. Only cross where a step tells you to. Tick each step off as you go.</div>
     <table class="dirs">
       <thead><tr><th style="width:20px"></th><th style="width:28px">#</th><th style="width:170px">Street &amp; side</th><th>What to do</th><th style="width:44px;text-align:right">Homes</th></tr></thead>
       <tbody>
-        ${legs.map(l => `<tr>
-          <td><div class="box"></div></td>
-          <td><div class="num" style="background:${legColor(l.n)}">${l.n}</div></td>
-          <td><span class="st">${esc(l.street)}</span><br><span class="sd">${esc(l.side)}${l.dir ? ` · walk ${l.dir}` : ''}</span></td>
-          <td>${esc(l.cue)}</td>
-          <td class="hm">${l.homes < 0.5 ? '—' : Math.round(l.homes)}</td>
-        </tr>`).join('')}
+        ${rows}
         ${legs.length ? `<tr class="finish-row"><td></td><td>🏁</td><td colspan="3">${esc(legs[legs.length - 1].endCue || '')}</td></tr>` : ''}
       </tbody>
     </table>`;
 
-  if (printMap) { printMap.remove(); printMap = null; }
-  printMap = makeMap('printMap', { interactive: false });
+  printMaps.forEach(m => m.remove());
+  printMaps = [];
   const btn = document.getElementById('printBtn');
-  btn.disabled = true; btn.textContent = 'Loading map…';
+  btn.disabled = true; btn.textContent = 'Loading maps…';
+  let pending = 0;
   const ready = () => { btn.disabled = false; btn.textContent = 'Print / Save as PDF'; };
-  printMap.tiles.once('load', ready);
+  const track = m => { pending++; m.tiles.once('load', () => { if (--pending === 0) ready(); }); printMaps.push(m); return m; };
   setTimeout(ready, 8000); // fallback if a tile request stalls
-  fitRoute(printMap, ctx, plan, 22);
-  drawStatic(printMap, ctx, plan, { labels: true });
-  drawLegs(printMap, plan, { offsetPx: 3.5 });
+
+  const main = track(makeMap('printMap', { interactive: false }));
+  fitRoute(main, ctx, plan, 22);
+  if (!panels) {
+    drawStatic(main, ctx, plan, { labels: true });
+    drawLegs(main, plan, { offsetPx: 3.5 });
+    return;
+  }
+  drawStatic(main, ctx, plan, { labels: false });
+  drawOverviewKey(main, ctx, plan, panels);
+  for (const pn of panels) {
+    const m = track(makeMap('printMap' + pn.letter, { interactive: false }));
+    const pts = pn.legs.flatMap(l => l.latlngs);
+    // Show the start on the first map only if it's nearby -- a far-off pub would zoom it right out.
+    if (pn.only.has(1) && ctx.start && L.latLng(ctx.start.latlng).distanceTo(pn.legs[0].latlngs[0]) < 300) pts.push(ctx.start.latlng);
+    m.fitBounds(L.latLngBounds(pts), { padding: [22, 22], maxZoom: 18 });
+    drawStatic(m, ctx, plan, { labels: true, only: pn.only });
+    drawLegs(m, plan, { offsetPx: 3.5, only: pn.only });
+  }
 }
 
 // ---- "My location": nearest routes across every ward --------------------
