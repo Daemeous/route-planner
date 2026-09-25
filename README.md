@@ -64,7 +64,8 @@ Both types come with **walking directions**: numbered steps that walk each
 side of a road once, keeping the road on your left (so UK traffic comes
 towards you), with walk-ins routed along real roads. They're in the
 published app and, optionally, the "Walking directions" print sheets (at
-most two pages -- one double-sided sheet -- per route). See
+most two pages per route, one route per plastic wallet; the print page
+has a tickbox for printers that print on both sides). See
 `js/walkOrder.js` for how the order is worked out.
 
 ## Home positions (`data/homes/`)

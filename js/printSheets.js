@@ -119,6 +119,7 @@ const PrintSheets = (() => {
       : null;
     const tips = directions ? [
       'Follow the numbered steps on your sheet in order, and tick each one off as you go.',
+      'Some routes have two pages. Page 1 goes on the front of the plastic wallet and page 2 on the back. Just turn the wallet over when you get to the end of page 1.',
       "Keep the road on your <b>left</b>, so traffic comes towards you. The letterboxes you're doing are on your <b>right</b>. Only cross the road where a step tells you to.",
       "Each side of a road is its own step: you'll go up one side and come back down the other. Only deliver the streets in your steps, even if you walk past others.",
       startTip || `"Walk" routes start on foot from ${startDesc}. "Drive-to" and "Hybrid" routes start from a suggested free-parking road shown on the map.`,
@@ -305,9 +306,14 @@ const PrintSheets = (() => {
   }
 
   // ---- "Walking directions" sheet style --------------------------------
-  // At most TWO pages per route (one sheet printed double-sided, so it fits a
-  // plastic wallet): page 1 has the map, start, QR code and the first steps;
-  // page 2 (only if needed) has up to two zoomed maps and the rest. Pages are
+  // At most TWO pages per route, one route per clear plastic wallet: page 1
+  // (the front) has the map, start, QR code and the first steps; page 2 (only
+  // if needed, the back) has up to two zoomed maps and the rest. By default
+  // each page prints on its own sheet and the two go back to back in the
+  // wallet; the print bar's "prints on both sides" tickbox adds blank backs
+  // instead (after the cover, one-page routes and classic pages) so every
+  // route still starts on a fresh sheet on a double-sided printer. Each page
+  // is labelled with its route and page number either way. Pages are
   // fixed A4-sized boxes and a small in-page script lays each route out,
   // trying progressively more compact layouts until it fits -- so the page
   // count is decided by what actually fits, not guessed.
@@ -361,9 +367,10 @@ const PrintSheets = (() => {
         <div class="qr">${qrSvg(url, 3)}<div class="qr-url">${esc(url)}</div></div>
       </div>
       <ol class="steps" id="s1-${id}"></ol>
+      <div class="page-foot" id="foot-${id}">&nbsp;</div>
     </section>
     <section class="page p2" id="p2-${id}">
-      <div class="p2-head"><b style="color:${color}">Route ${id}</b> · ${esc(route.name)} · continued</div>
+      <div class="p2-head"><span><b style="color:${color}">Route ${id}</b> · ${esc(route.name)} · continued</span><span class="p2-page">Page 2 of 2 · goes on the back of page 1</span></div>
       <div class="details" id="det-${id}"></div>
       <ol class="steps" id="s2-${id}"></ol>
     </section>
@@ -421,7 +428,7 @@ const PrintSheets = (() => {
       var num = li.querySelector('.num');
       if (n && num) num.style.background = DirectionsMap.legColor(+n);
     });
-    p2.classList.remove('blank');
+    p2.classList.remove('unused');
     var i = 0;
     for (; i < items.length; i++) {
       s1.appendChild(items[i]);
@@ -429,9 +436,12 @@ const PrintSheets = (() => {
     }
     for (var j = i; j < items.length; j++) s2.appendChild(items[j]);
     var needP2 = i < items.length || useDetails;
-    // An unused page 2 stays as a blank back, so every route starts on the
-    // front of its own sheet when printed double-sided.
-    p2.classList.toggle('blank', !needP2);
+    // An unused page 2 is hidden, or shown as a blank back when printing on
+    // both sides (see the .unused CSS).
+    p2.classList.toggle('unused', !needP2);
+    document.getElementById('foot-' + spec.id).textContent = needP2
+      ? 'Page 1 of 2 · more steps on page 2, on the back'
+      : 'Page 1 of 1';
     return { pages: needP2 ? 2 : 1, fits: !needP2 || !overflows(p2), useDetails: useDetails };
   }
 
@@ -440,11 +450,11 @@ const PrintSheets = (() => {
     var panels = DirectionsMap.planPanels(spec.legs, mainPx, detPx);
     if (panels) panels.forEach(function (pn, k) { pn.color = PANEL_COLORS[k]; });
     var results = LEVELS.map(function (lv) { return layout(spec, lv, panels); });
-    // Each route gets its own sheet (blank back if unused), so a second page
-    // costs no paper when printed double-sided -- readability comes first.
-    // Uncrowded route: one page only if it still uses readable text (saves
-    // paper printed single-sided). Crowded route: keep the zoomed maps if at
-    // all possible. Otherwise the first (most readable) level that fits on two.
+    // A second page costs a second sheet of paper, but both still slip into
+    // the one wallet, so readability comes first. Uncrowded route: one page
+    // only if it still uses readable text. Crowded route: keep the zoomed maps
+    // if at all possible. Otherwise the first (most readable) level that fits
+    // on two.
     var pick = panels ? results.findIndex(function (r) { return r.fits && r.useDetails; })
       : results.findIndex(function (r, k) { return r.fits && r.pages === 1 && LEVELS[k].font >= 9; });
     if (pick < 0) pick = results.findIndex(function (r) { return r.fits; });
@@ -494,7 +504,7 @@ const PrintSheets = (() => {
     spec.legs.filter(function (l) { return l.type === 'transfer'; }).forEach(function (l) {
       L.polyline(l.latlngs, { color: '#15181d', weight: 2.5, opacity: 0.7, dashArray: '2 7', interactive: false }).addTo(layer);
     });
-    key.textContent = 'This map shows the whole route. Maps A and B overleaf zoom in on steps ' + chosen.panels[0].from + '–' + chosen.panels[0].to + ' and ' + chosen.panels[1].from + '–' + chosen.panels[1].to + '. Numbers give the order; arrows show which way to walk; each line is drawn on the side of the road you\\'ll be on. Dotted line = walk there, nothing to deliver.';
+    key.textContent = 'This map shows the whole route. Maps A and B on page 2 (on the back) zoom in on steps ' + chosen.panels[0].from + '–' + chosen.panels[0].to + ' and ' + chosen.panels[1].from + '–' + chosen.panels[1].to + '. Numbers give the order; arrows show which way to walk; each line is drawn on the side of the road you\\'ll be on. Dotted line = walk there, nothing to deliver.';
     chosen.panels.forEach(function (pn) {
       var m = makeMap('map-' + spec.id + '-' + pn.letter);
       var near = pn.only.has(1) ? spec.start && spec.start.latlng : null;
@@ -514,7 +524,7 @@ const PrintSheets = (() => {
     if (ready) return;
     ready = true;
     printBtn.disabled = false;
-    printBtn.textContent = 'Print / Save as PDF (double-sided)';
+    printBtn.textContent = 'Print / Save as PDF';
   }
   if (!pending) enablePrint();
   maps.forEach(function (m) { m.tiles.once('load', function () { if (--pending <= 0) enablePrint(); }); });
@@ -533,7 +543,7 @@ const PrintSheets = (() => {
     const pages = data.routes.map(r => (withDir.includes(r)
       ? directionsRoutePagesHtml(r, colorsMap[r.id], appUrlBase, wardName, !!data.general)
       // No directions for this route (couldn't be planned): classic page for it.
-      : routePageHtml(r, colorsMap[r.id], appUrlBase, wardName, { targetMin: opts.targetMin ?? 150, targetMax: opts.targetMax ?? 450 }).replace('class="sheet route-sheet"', 'class="page classic route-sheet"') + '<section class="page blank"></section>')).join('\n');
+      : routePageHtml(r, colorsMap[r.id], appUrlBase, wardName, { targetMin: opts.targetMin ?? 150, targetMax: opts.targetMax ?? 450 }).replace('class="sheet route-sheet"', 'class="page classic route-sheet"') + '<section class="page back-blank"></section>')).join('\n');
     const specs = withDir.map(r => {
       const start = r.marker
         ? { latlng: [r.marker.point[1], r.marker.point[0]], kind: 'parking' }
@@ -555,12 +565,20 @@ const PrintSheets = (() => {
   body { font-family: 'Segoe UI', system-ui, sans-serif; color: #15181d; margin: 0; background: #e8e8e6; }
   .page { background: white; width: 190mm; height: 276mm; overflow: hidden; margin: 12px auto; padding: 0; outline: 10mm solid white; box-shadow: 0 0 0 10mm white, 0 0 0 calc(10mm + 1px) #d6d6d2; display: flex; flex-direction: column; }
   .page + .page, .page + template + .page { margin-top: calc(20mm + 14px); }
-  .page.blank > * { display: none; }
-  .page.blank::after { content: 'Blank back of the sheet above'; margin: auto; color: #b5b5b0; font-size: 12px; }
+  /* Blank backs: hidden when each page gets its own sheet, shown (empty)
+     when the printer prints on both sides, so each route starts a fresh sheet. */
+  .page.unused, .page.back-blank { display: none; }
+  body.both-sides .page.unused, body.both-sides .page.back-blank { display: flex; }
+  .page.unused > * { display: none; }
+  .page.unused::after, .page.back-blank::after { content: 'Blank back of the sheet above'; margin: auto; color: #b5b5b0; font-size: 12px; }
+  .print-bar .sides { display: inline-flex; align-items: center; gap: 6px; margin-left: 14px; font-size: 13px; cursor: pointer; }
+  .print-bar .sides input { width: 17px; height: 17px; }
+  .how { font-size: 11.5px; color: #9aa3ad; margin-top: 4px; }
+  body.both-sides .how.one, body:not(.both-sides) .how.both { display: none; }
   @media print {
     body { background: white; }
+    .page.unused::after, .page.back-blank::after { content: none; }
     .page { margin: 0; outline: none; box-shadow: none; break-after: page; }
-    .page.blank::after { content: none; }
     .page + .page, .page + template + .page { margin-top: 0; }
     .no-print { display: none; }
     .num, .route-titlebar, .panel-tag, .panel-box-label, .leg-num { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -596,7 +614,9 @@ const PrintSheets = (() => {
   .qr { flex: 0 0 96px; text-align: center; }
   .qr svg { width: 86px; height: 86px; }
   .qr-url { font-size: 7px; color: #888; word-break: break-all; line-height: 1.2; }
-  .p2-head { font-size: 11px; color: #5b6470; padding: 2px 2px 6px; border-bottom: 1.5px solid #15181d; flex: none; }
+  .p2-head { font-size: 11px; color: #5b6470; padding: 2px 2px 6px; border-bottom: 1.5px solid #15181d; flex: none; display: flex; justify-content: space-between; gap: 10px; }
+  .p2-page { font-weight: 700; color: #15181d; white-space: nowrap; }
+  .page-foot { margin-top: auto; padding-top: 4px; font-size: 9.5px; font-weight: 700; color: #5b6470; text-align: right; flex: none; }
   .details { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0; flex: none; }
   .details:empty { display: none; }
   .detail-cap { font-size: 10.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
@@ -626,10 +646,25 @@ const PrintSheets = (() => {
   .start-dot { background: #15181d; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.2); }
 </style></head><body>
 <div class="print-bar no-print"><button id="printBtn" disabled onclick="window.print()">Loading maps…</button>
+  <label class="sides"><input type="checkbox" id="bothSides"> My printer prints on both sides of the paper</label>
   <div class="print-note" id="printNote"></div>
-  <div style="font-size:11.5px;color:#9aa3ad;margin-top:4px">Print double-sided (flip on long edge) so each route is one sheet.</div></div>
+  <div class="how one">Each page prints on its own sheet of paper. If a route has a page 2, put it behind page 1 in the same clear plastic wallet, so page 1 shows on the front and page 2 on the back. One wallet per route.</div>
+  <div class="how both">Page 2 prints on the back of page 1. Routes with only one page get a blank back, so every route has its own sheet. One sheet per wallet.</div>
+  <div class="how" style="color:#f6c26b">Not sure? Print just the first 2 pages as a test. If they came out on one piece of paper, tick the box above.</div></div>
+<script>
+(function () {
+  var box = document.getElementById('bothSides');
+  function apply() { document.body.classList.toggle('both-sides', box.checked); }
+  try { box.checked = localStorage.getItem('printBothSides') === '1'; } catch (e) {}
+  apply();
+  box.addEventListener('change', function () {
+    apply();
+    try { localStorage.setItem('printBothSides', box.checked ? '1' : '0'); } catch (e) {}
+  });
+})();
+</script>
 <section class="page cover">${cover.replace(/^<section class="sheet cover">|<\/section>$/g, '')}</section>
-<section class="page blank"></section>
+<section class="page back-blank"></section>
 ${pages}
 ${directionsLayoutScript(specs)}
 ${classicSpecs.length ? mapInitScript(classicSpecs).replace("document.getElementById('printBtn')", "({ set disabled(v) {}, set textContent(v) {} })") : ''}
