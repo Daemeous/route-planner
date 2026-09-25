@@ -41,12 +41,17 @@ const Cluster = (() => {
   // effort each, so it can form routes like everything else. Parts keep
   // rootName, so progress reports still write back to the right slice of
   // the original sheet row (see mapData.js).
-  function splitByEffort(roads, targetSoft) {
+  // Strict target sizing (targetMax given) makes the same cut on any road
+  // bigger than one route -- by homes (weight 1) or by effort -- into as
+  // many parts as keeps each nearest targetSoft without passing targetMax.
+  function splitByEffort(roads, targetSoft, { weight = effortWeight, targetMax = null } = {}) {
     const out = {};
     const taken = new Set(Object.keys(roads));
     for (const [name, r] of Object.entries(roads)) {
-      const effort = r.status === 'Complete' || r.residencesRemaining <= 0 ? 0 : r.residencesRemaining * effortWeight(r);
-      const k = Math.ceil(effort / targetSoft);
+      const effort = r.status === 'Complete' || r.residencesRemaining <= 0 ? 0 : r.residencesRemaining * weight(r);
+      const k = targetMax
+        ? Math.max(Math.round(effort / targetSoft), Math.ceil(effort / targetMax))
+        : Math.ceil(effort / targetSoft);
       if (k < 2 || !r.remainingGeometry.length) { out[name] = r; continue; }
       const lens = r.remainingGeometry.map(Geo.segLength);
       const total = lens.reduce((a, b) => a + b, 0);
@@ -244,6 +249,11 @@ const Cluster = (() => {
     const eligible = {};
     for (const [n, r] of Object.entries(roads)) if (r.status !== 'Complete' && r.residencesRemaining > 0) eligible[n] = r;
     const byEffort = opts.sizeBy === 'effort';
+    // Strict target (opt-in): a route only takes another road if that
+    // brings it closer to targetSoft, and every merge is capped at the
+    // caller's targetMax -- so routes land near the target rather than at
+    // two or three times it.
+    const strict = !!opts.strictTarget;
     const sizeOfRoad = {};
     for (const [n, r] of Object.entries(eligible)) sizeOfRoad[n] = byEffort ? r.residencesRemaining * effortWeight(r) : r.residencesRemaining;
 
@@ -268,7 +278,9 @@ const Cluster = (() => {
         let picked = null;
         for (const c of candidates) {
           if (size >= targetSoft) break;
-          if (size + sizeOfRoad[c] <= targetMax) { picked = c; break; }
+          if (size + sizeOfRoad[c] > targetMax) continue;
+          if (strict && Math.abs(size + sizeOfRoad[c] - targetSoft) >= Math.abs(size - targetSoft)) continue;
+          picked = c; break;
         }
         if (picked === null) break;
         members.add(picked);
@@ -282,13 +294,14 @@ const Cluster = (() => {
       clusters.push(byEffort ? { roads: [...members].sort(), residences: res, size } : { roads: [...members].sort(), residences: res });
     }
 
-    // (Homes-based sizing keeps its original fixed merge ceiling; effort
-    // sizing uses the caller's targetMax, since its units differ.)
-    let out = mergeSmallClusters(clusters, adjacency, targetMin, byEffort ? targetMax : TARGET_MAX);
+    // (Homes-based sizing keeps its original fixed merge ceiling unless
+    // strict; effort sizing uses the caller's targetMax, since its units differ.)
+    const mergeMax = byEffort || strict ? targetMax : TARGET_MAX;
+    let out = mergeSmallClusters(clusters, adjacency, targetMin, mergeMax);
     // Trimming to home positions (Graph.trimToHomes) leaves hamlets as
     // islands with no road between them, so they need the wider merge too.
     const trimmed = Object.values(eligible).some(r => r.homesTrimmed);
-    out = mergeSmallClustersByGeography(out, roads, targetMin, byEffort || trimmed ? EFFORT_MERGE_GAP_M : 1000, byEffort ? targetMax : TARGET_MAX);
+    out = mergeSmallClustersByGeography(out, roads, targetMin, byEffort || trimmed ? EFFORT_MERGE_GAP_M : 1000, mergeMax);
 
     for (const c of out) {
       const minD = Math.min(...c.roads.map(n => distFromStart[n]));

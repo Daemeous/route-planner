@@ -60,12 +60,23 @@ const Pipeline = (() => {
     return out;
   }
 
+  // Cut roads too big for one route: always under effort sizing, and under
+  // strict target sizing by homes too (see Cluster.splitByEffort).
+  function splitOversized(roads, clusterOpts) {
+    const target = clusterOpts.targetSoft ?? 150;
+    if (clusterOpts.strictTarget) {
+      const weight = clusterOpts.sizeBy === 'effort' ? Cluster.effortWeight : () => 1;
+      return Cluster.splitByEffort(roads, target, { weight, targetMax: clusterOpts.targetMax ?? Math.round(target * 1.25) });
+    }
+    return clusterOpts.sizeBy === 'effort' ? Cluster.splitByEffort(roads, target) : roads;
+  }
+
   function buildSingleHub(rows, wardName, pubName, pubLat, pubLon, clusterOpts = {}) {
     let roads = Graph.loadRoads(rows, { ward: wardName });
     const originalGeometry = captureOriginalGeometry(roads);
     roads = Graph.trimToHomes(roads); // no-op without home positions (data/homes)
     roads = Graph.splitLongRoads(roads);
-    if (clusterOpts.sizeBy === 'effort') roads = Cluster.splitByEffort(roads, clusterOpts.targetSoft ?? 150);
+    roads = splitOversized(roads, clusterOpts);
     const adjacency = Graph.buildAdjacency(roads);
     const eventStart = [pubLon, pubLat];
     const clusters = Cluster.clusterRoads(roads, adjacency, eventStart, clusterOpts);
@@ -99,7 +110,7 @@ const Pipeline = (() => {
       let settlementRoads = {};
       for (const n of group) settlementRoads[n] = roadsAll[n];
       settlementRoads = Graph.splitLongRoads(settlementRoads);
-      if (clusterOpts.sizeBy === 'effort') settlementRoads = Cluster.splitByEffort(settlementRoads, clusterOpts.targetSoft ?? 150);
+      settlementRoads = splitOversized(settlementRoads, clusterOpts);
       const settlementAdjacency = Graph.buildAdjacency(settlementRoads);
       Object.assign(mergedRoads, settlementRoads);
 

@@ -325,10 +325,13 @@ function switchToManualStart() {
 
 function currentClusterOpts() {
   const target = parseInt($('targetSize').value, 10) || 150;
+  // Strict: routes stay near the target (see Cluster.clusterRoads) --
+  // a tighter default ceiling, still overridable under Advanced.
+  const strictTarget = $('strictTarget').checked;
   const min = parseInt($('targetMin').value, 10) || Math.round(target * 0.75);
-  const max = parseInt($('targetMax').value, 10) || Math.round(target * 2.25);
+  const max = parseInt($('targetMax').value, 10) || Math.round(target * (strictTarget ? 1.25 : 2.25));
   return {
-    targetSoft: target, targetMin: min, targetMax: max,
+    targetSoft: target, targetMin: min, targetMax: max, strictTarget,
     walkRadiusM: parseInt($('walkRadius').value, 10) || 700,
     hybridRadiusM: parseInt($('hybridRadius').value, 10) || 1100,
   };

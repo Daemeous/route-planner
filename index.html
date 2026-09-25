@@ -154,6 +154,11 @@
           high compared to how many doors you'll actually knock on -- treat every figure on this page as an
           estimate, not an exact count.</div>
         <div class="hint" id="generalSizeHint" style="display:none">For general ward routes this is in <b>town-home equivalents</b>: a home on a sparse rural lane counts as about six town homes, so a 150 route is ~150 homes on an estate but only ~25&ndash;40 on the lanes.</div>
+        <label class="report-road-item" style="margin-top:8px">
+          <input type="checkbox" id="strictTarget">
+          <span>Stick closely to the target size</span>
+        </label>
+        <div class="hint" style="margin:4px 0 0">By default a route can grow to two or three times the target when leftover streets are folded in. With this on, routes stay within about &plusmn;25% of the target (unless Min/Max are set under Advanced), and a single street too big for one route is split between routes. You'll get more routes, and a few isolated spots may still come out small.</div>
       </div>
       <div id="wardScaleBox">
         <label>Ward size</label>

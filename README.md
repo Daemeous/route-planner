@@ -29,7 +29,9 @@ its own.
    from the shortlist) or enter a start point by hand, and large/rural
    wards can be split into several local areas -- or **general ward
    routes, no start point**, sized by effort, for covering a ward over
-   time.
+   time. Tick **Stick closely to the target size** to keep every route
+   within about ±25% of the target, instead of letting leftover streets
+   push some to two or three times it.
 3. **Build.** Runs entirely in your browser — the same clustering
    algorithm as the Python pipeline this project grew out of (network-
    distance-aware region growing, long-road splitting, settlement-finding
