@@ -66,7 +66,7 @@ const RouteDirections = (() => {
       legs: plan.legs.map(l => l.type === 'transfer'
         ? { type: 'transfer', len: Math.round(l.len), latlngs: l.latlngs.map(p => [round6(p[0]), round6(p[1])]) }
         : {
-          type: 'leg', n: l.n, street: l.street, side: l.side, dir: l.dir, pavement: l.pavement,
+          type: 'leg', n: l.n, street: l.street, side: l.side, dir: l.dir, pavement: l.pavement, alreadyDone: l.alreadyDone || undefined,
           homes: Math.round(l.homes * 10) / 10, len: Math.round(l.len), cue: l.cue, endCue: l.endCue || undefined,
           latlngs: l.latlngs.map(p => [round6(p[0]), round6(p[1])]),
         }),
@@ -88,6 +88,7 @@ const RouteDirections = (() => {
         const roads = route.roads.map(rd => ({
           street: rd.name, res: rd.residences, segments: toLatLngSegments(rd.geometry),
           homes: rd.homes ? rd.homes.map(([lon, lat]) => [lat, lon]) : null,
+          halfDone: rd.halfDone ? rd.halfDone.map(h => ({ side: h.side, pts: h.pts.map(([lon, lat]) => [lat, lon]) })) : null,
         }))
           .filter(rd => rd.segments.length);
         const plan = WalkOrder.plan({ roads }, { start: startFor(route, payload), network, driveSparse: route.kind === 'drive' });

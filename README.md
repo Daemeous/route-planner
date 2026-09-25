@@ -130,6 +130,23 @@ another file for a while after a push (seen in testing as
 "Pipeline.buildGeneral is not a function"). The app template is always
 revalidated.
 
+## Part-done roads
+
+A road marked In_Progress has done ranges in its `partial_geometry` column,
+each tagged with a side as the live tracker records it: **B** = both sides
+done; **S** = the right-hand side and **F** = the left-hand side, relative to
+the direction the road's line is drawn in. An S and an F over the same
+stretch together make both sides.
+
+- Only both-sides-done stretches are left out of routes.
+- A stretch with **one side done stays in**, counted as half its homes, and
+  its walking directions mark that pavement "already done" (grey, dashed,
+  nothing to deliver) instead of sending someone back down it.
+- Ranges are marked by tapping a map, so they're treated as approximate:
+  anything **under 10 m is ignored** as a stray tap, and done stretches
+  **less than 10 m apart, or less than 10 m short of either end, are joined
+  up**, so small imprecisions don't leave slivers of road "still to do".
+
 ## How progress reporting works
 
 The generated app has no separate backend of its own. It talks directly to

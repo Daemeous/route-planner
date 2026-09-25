@@ -91,7 +91,7 @@ function directionsMapFactory() {
       const isSel = l.n === sel, faded = sel != null && !isSel;
       const line = offsetLatLngs(map, l.latlngs, pavementOffset(l, offsetPx));
       lines.set(l.n, line);
-      const back = l.pavement === 'back';
+      const back = l.pavement === 'back' || l.alreadyDone;
       const pl = L.polyline(line, {
         color: back ? '#6b7178' : colour(l), weight: isSel ? 6 : back ? 3 : l.pavement === 'both' ? 6 : 4,
         opacity: faded ? 0.35 : back ? 0.7 : 0.95, dashArray: back ? '6 6' : null, lineCap: 'round', lineJoin: 'round', bubblingMouseEvents: false,

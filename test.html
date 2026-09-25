@@ -5,12 +5,12 @@
 <title>Walking Directions Test</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script src="js/colors.js?v=2026-09-25a"></script>
-<script src="js/walkOrder.js?v=2026-09-25a"></script>
-<script src="js/csv.js?v=2026-09-25a"></script>
-<script src="js/sheets.js?v=2026-09-25a"></script>
-<script src="js/directionsMap.js?v=2026-09-25a"></script>
-<script src="js/progressMatch.js?v=2026-09-25a"></script>
+<script src="js/colors.js?v=2026-09-25b"></script>
+<script src="js/walkOrder.js?v=2026-09-25b"></script>
+<script src="js/csv.js?v=2026-09-25b"></script>
+<script src="js/sheets.js?v=2026-09-25b"></script>
+<script src="js/directionsMap.js?v=2026-09-25b"></script>
+<script src="js/progressMatch.js?v=2026-09-25b"></script>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; }
@@ -477,8 +477,8 @@ function drawLegs(map, plan, { sel = null, done = new Set(), offsetPx = 4, onPic
     const faded = sel != null && !isSel;
     const line = offsetLatLngs(map, l.latlngs, legOffset(l, offsetPx));
     const pl = L.polyline(line, {
-      color: l.pavement === 'back' && !isDone ? '#6b7178' : color, weight: isSel ? 6 : l.pavement === 'back' ? 3 : l.pavement === 'both' ? 6 : 4,
-      opacity: faded ? 0.35 : 0.95, dashArray: l.pavement === 'back' ? '6 6' : null, lineCap: 'round', lineJoin: 'round', bubblingMouseEvents: false,
+      color: (l.pavement === 'back' || l.alreadyDone) && !isDone ? '#6b7178' : color, weight: isSel ? 6 : l.pavement === 'back' || l.alreadyDone ? 3 : l.pavement === 'both' ? 6 : 4,
+      opacity: faded ? 0.35 : 0.95, dashArray: l.pavement === 'back' || l.alreadyDone ? '6 6' : null, lineCap: 'round', lineJoin: 'round', bubblingMouseEvents: false,
     }).addTo(map.legLayer);
     if (onPick) pl.on('click', () => onPick(l.n));
     // Direction arrows every ~60px of screen length (at least one).

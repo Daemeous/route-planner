@@ -34,7 +34,10 @@
 // pavement-by-pavement walk.
 //
 // Input roads are the app payload shape: {street, res, segments:[[[lat,lon],...]]},
-// optionally with homes: [[lat,lon],...] -- where along the road its homes
+// optionally with halfDone: [{side:'S'|'F', pts:[[lat,lon],...]}] -- stretches
+// with one side already delivered (S = right of pts' direction, F = left);
+// that pavement becomes an "already done" step with nothing to deliver --
+// and optionally with homes: [[lat,lon],...] -- where along the road its homes
 // are (js/homes.js). With them, each step gets the homes actually on its
 // stretch; without, a road's homes are spread along it by length.
 'use strict';
@@ -263,6 +266,28 @@ const WalkOrder = (() => {
       e.res = roads[e.road].res * e.len / keptLen[e.road];
       e.perKm = keptLen[e.road] ? roads[e.road].res / keptLen[e.road] * 1000 : 0;
     }
+    // One side already delivered: flag which side of each edge (relative to
+    // its own a->b direction) is done, judged at the edge's midpoint.
+    roads.forEach((rd, ri) => {
+      if (!rd.halfDone || !rd.halfDone.length) return;
+      const pieces = rd.halfDone.map(h => ({ side: h.side, pts: h.pts.map(proj.toXY) })).filter(h => h.pts.length >= 2);
+      for (const e of edges) {
+        if (e.road !== ri) continue;
+        const cum = cumulative(e.pts), mid = pointAt(e.pts, cum, cum[cum.length - 1] / 2);
+        const ahead = pointAt(e.pts, cum, Math.min(cum[cum.length - 1], cum[cum.length - 1] / 2 + 2));
+        const ed = [ahead[0] - mid[0], ahead[1] - mid[1]];
+        for (const h of pieces) {
+          const hc = cumulative(h.pts), hit = nearestOn(h.pts, hc, mid);
+          if (hit.d > 3) continue;
+          const p2 = pointAt(h.pts, hc, Math.min(hc[hc.length - 1], hit.s + 2)), p1 = pointAt(h.pts, hc, Math.max(0, hit.s - 2));
+          const same = ed[0] * (p2[0] - p1[0]) + ed[1] * (p2[1] - p1[1]) >= 0;
+          // S = right of the stretch's direction; flipped if the edge runs the other way.
+          const rightDone = (h.side === 'S') === same;
+          if (rightDone) e.doneRight = true; else e.doneLeft = true;
+        }
+      }
+    });
+
     // Known home positions: share each road's homes by the edge they're on.
     roads.forEach((rd, ri) => {
       if (!rd.homes || !rd.homes.length) return;
@@ -571,7 +596,12 @@ const WalkOrder = (() => {
       const pts = T.ptsOf(st.h);
       // 'side': one pavement; 'both': driving along delivering both sides;
       // 'back': driving back along a lane that's already done.
-      const pass = !sparse(e) ? 'side' : deliveredEdges.has(st.h >> 1) ? 'back' : 'both';
+      let pass = !sparse(e) ? 'side' : deliveredEdges.has(st.h >> 1) ? 'back' : 'both';
+      // Walking the pavement on the right of travel along a forward edge is
+      // the edge's right side; every other combination flips it.
+      const onEdgeRight = (st.h % 2 === 0) === !!st.pavementOnRight;
+      const oneSideDone = e.doneRight || e.doneLeft;
+      if (pass === 'side' && (onEdgeRight ? e.doneRight : e.doneLeft)) pass = 'sidedone';
       deliveredEdges.add(st.h >> 1);
       const turnHere = cur ? angDiff(cur.endBearing, T.outBearing(st.h)) : 0;
       // Same-named road forking at a junction: still a new leg, or the
@@ -588,14 +618,15 @@ const WalkOrder = (() => {
         else if (prev) turn = { kind: turnWord(turnHere), fork, from: prev.street };
         cur = {
           type: 'leg', street: e.street, streets: [e.street], pre: pending, turn, xy: [...pts], homes: 0, len: 0, sideVec: [0, 0], pass,
-          pavement: pass === 'side' ? (st.pavementOnRight ? 'right' : 'left') : pass,
+          pavement: pass === 'side' || pass === 'sidedone' ? (st.pavementOnRight ? 'right' : 'left') : pass,
         };
         pending = [];
       } else {
         cur.xy.push(...pts.slice(1));
         if (!cur.streets.includes(e.street)) cur.streets.push(e.street);
       }
-      cur.homes += pass === 'side' ? e.res / 2 : pass === 'both' ? e.res : 0;
+      // A stretch with one side already done has all its remaining homes on the other side.
+      cur.homes += pass === 'side' ? (oneSideDone ? e.res : e.res / 2) : pass === 'both' ? e.res : 0;
       if (e.includes && pass !== 'back') for (const x of e.includes) if (x !== cur.street && !(cur.includes = cur.includes || []).includes(x)) cur.includes.push(x);
       cur.len += e.len;
       // Which side of the road the pavement is on: sum the normals on that side of travel (length-weighted).
@@ -636,12 +667,13 @@ const WalkOrder = (() => {
       else action = `Turn ${t.kind} into ${l.street}.`;
       if (!t && l.pre.length) action = `Then ${along}.`;
       if (l.pass === 'both') action += ' Deliver both sides as you go.';
+      if (l.pass === 'sidedone') action += " This side's already been done, so nothing to deliver.";
       if (l.includes && l.includes.length) action += ` Includes ${l.includes.join(' and ')} (a very short road here).`;
       return {
         type: 'leg', n: ++n, street: l.street, cue: [...l.pre, action].join(' '),
         homes: l.homes, len: l.len,
-        side: l.pass === 'both' ? 'both sides' : SIDE_WORD[compass8(bearing([0, 0], l.sideVec))] + ' side',
-        dir, pavement: l.pavement, latlngs: l.xy.map(proj.toLL),
+        side: l.pass === 'both' ? 'both sides' : SIDE_WORD[compass8(bearing([0, 0], l.sideVec))] + (l.pass === 'sidedone' ? ' side (already done)' : ' side'),
+        dir, pavement: l.pavement, alreadyDone: l.pass === 'sidedone' || undefined, latlngs: l.xy.map(proj.toLL),
       };
     });
     const walkLegs = out.filter(l => l.type === 'leg');

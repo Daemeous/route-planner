@@ -31,15 +31,95 @@ const Graph = (() => {
     });
   }
 
-  function parsePartial(s) {
-    const d = new Map();
+  // partial_geometry is "seg<fragment>:<from>-<to>:<side>" ranges joined by
+  // "|", in fractions of each LINESTRING fragment. The side, as the live
+  // tracker (leaflet-map core.js) reads it: B = both sides done; S = the
+  // right-hand side done and F = the left-hand side, relative to the
+  // fragment's own direction (S is drawn offset +5 m, F -5 m). An S and an
+  // F over the same stretch together make both sides.
+  function parsePartialSides(s) {
+    const d = new Map(); // fragment -> {B:[[a,b]], S:[...], F:[...]}
     if (!s || s === '-') return d;
     for (const tok of s.split('|')) {
       const m = tok.match(/seg(\d+):([\d.]+)-([\d.]+):(\w)/);
       if (!m) continue;
-      const idx = parseInt(m[1], 10);
-      if (!d.has(idx)) d.set(idx, []);
-      d.get(idx).push([parseFloat(m[2]), parseFloat(m[3])]);
+      const idx = parseInt(m[1], 10), side = m[4] === 'S' || m[4] === 'F' ? m[4] : 'B';
+      if (!d.has(idx)) d.set(idx, { B: [], S: [], F: [] });
+      const a = parseFloat(m[2]), b = parseFloat(m[3]);
+      d.get(idx)[side].push([Math.min(a, b), Math.max(a, b)]);
+    }
+    return d;
+  }
+
+  const mergeIntervals = list => {
+    const out = [];
+    for (const [a, b] of [...list].sort((x, y) => x[0] - y[0])) {
+      if (out.length && a <= out[out.length - 1][1] + 1e-9) out[out.length - 1][1] = Math.max(out[out.length - 1][1], b);
+      else out.push([a, b]);
+    }
+    return out;
+  };
+  const intersectIntervals = (A, B) => {
+    const out = [];
+    for (const [a1, b1] of A) for (const [a2, b2] of B) { const a = Math.max(a1, a2), b = Math.min(b1, b2); if (b > a) out.push([a, b]); }
+    return mergeIntervals(out);
+  };
+  const subtractIntervals = (A, B) => {
+    let out = A.map(x => [...x]);
+    for (const [c, d] of B) {
+      out = out.flatMap(([a, b]) => (d <= a || c >= b ? [[a, b]] : [...(c > a ? [[a, c]] : []), ...(d < b ? [[d, b]] : [])]));
+    }
+    return out.filter(([a, b]) => b - a > 1e-9);
+  };
+
+  // Partial completion is marked by tapping a map, so it's never exact. With
+  // fragment lengths (metres) given, ranges are cleaned up before use:
+  //   - any range under PARTIAL_MIN_M is a stray tap and is ignored;
+  //   - done stretches less than PARTIAL_MIN_M apart, or that stop less
+  //     than PARTIAL_MIN_M short of either end, are joined up -- otherwise
+  //     "done to here" + "done from here" leaves a sliver still "to do".
+  const PARTIAL_MIN_M = 10;
+  const dropTiny = (list, L) => (L ? list.filter(([a, b]) => (b - a) * L >= PARTIAL_MIN_M) : list);
+  function closeGaps(list, L) {
+    const merged = mergeIntervals(list);
+    if (!L || !merged.length) return merged;
+    const tol = PARTIAL_MIN_M / L;
+    const out = [];
+    for (const [a, b] of merged) {
+      if (out.length && a - out[out.length - 1][1] < tol) out[out.length - 1][1] = Math.max(out[out.length - 1][1], b);
+      else out.push([a, b]);
+    }
+    if (out[0][0] < tol) out[0][0] = 0;
+    if (1 - out[out.length - 1][1] < tol) out[out.length - 1][1] = 1;
+    return out;
+  }
+
+  // Fully done ranges per fragment: B ranges, plus where an S and an F
+  // overlap. fragLens (metres per fragment) turns on the tolerance above.
+  function parsePartial(s, fragLens = null) {
+    const d = new Map();
+    for (const [idx, sides] of parsePartialSides(s)) {
+      const L = fragLens ? fragLens[idx] : null;
+      const S = closeGaps(dropTiny(sides.S, L), L), F = closeGaps(dropTiny(sides.F, L), L);
+      const full = closeGaps(dropTiny([...dropTiny(sides.B, L), ...intersectIntervals(S, F)], L), L);
+      if (full.length) d.set(idx, full);
+    }
+    return d;
+  }
+
+  // One-side-only ranges per fragment: [{a, b, side: 'S'|'F'}] -- that side's
+  // done, the other side still needs delivering.
+  function parseHalfDone(s, fragLens = null) {
+    const d = new Map();
+    const full = parsePartial(s, fragLens);
+    for (const [idx, sides] of parsePartialSides(s)) {
+      const L = fragLens ? fragLens[idx] : null;
+      const done = full.get(idx) || [];
+      const half = [
+        ...dropTiny(subtractIntervals(closeGaps(dropTiny(sides.S, L), L), done), L).map(([a, b]) => ({ a, b, side: 'S' })),
+        ...dropTiny(subtractIntervals(closeGaps(dropTiny(sides.F, L), L), done), L).map(([a, b]) => ({ a, b, side: 'F' })),
+      ];
+      if (half.length) d.set(idx, half);
     }
     return d;
   }
@@ -64,13 +144,14 @@ const Graph = (() => {
       const linestrings = parseLinestrings(r.roadGeometry);
       const lengths = linestrings.map(Geo.segLength);
       const totalLen = lengths.reduce((a, b) => a + b, 0);
-      const partial = parsePartial(r.partialGeometry);
+      const partial = parsePartial(r.partialGeometry, lengths);     // both sides done
+      const halfDone = parseHalfDone(r.partialGeometry, lengths);  // one side done
       // Where the homes are along the road (data/homes, see js/homes.js), as
       // points on the line -- null if unknown, and everything below then
       // falls back to spreading the homes evenly by length.
       const homePoints = r.homeFracs && typeof Homes !== 'undefined' ? Homes.pointsOnLine(linestrings, r.homeFracs) : null;
 
-      let remainingGeom, coveredGeom, estResidences;
+      let remainingGeom, coveredGeom, estResidences, halfPieces = null;
       if (r.status === 'In_Progress') {
         let coveredLen = 0;
         remainingGeom = []; coveredGeom = [];
@@ -81,8 +162,20 @@ const Graph = (() => {
           remainingGeom.push(...Geo.remainingSubpaths(pts, ranges));
           coveredGeom.push(...Geo.coveredSubpaths(pts, ranges));
         });
+        // One-side-done stretches stay in the route (the other side still
+        // needs delivering) but count as half done. Their geometry, in the
+        // fragment's own direction, lets walking directions skip the done side.
+        let halfLen = 0;
+        halfPieces = [];
+        linestrings.forEach((pts, idx) => {
+          for (const h of halfDone.get(idx) || []) {
+            halfLen += (h.b - h.a) * lengths[idx];
+            const [piece] = Geo.coveredSubpaths(pts, [[h.a, h.b]]);
+            if (piece) halfPieces.push({ pts: piece, side: h.side });
+          }
+        });
         const remainingLen = totalLen - coveredLen;
-        const fracRemaining = totalLen ? remainingLen / totalLen : 0;
+        const fracRemaining = totalLen ? (remainingLen - halfLen / 2) / totalLen : 0;
         estResidences = r.residences * fracRemaining;
         // With home positions, "40% of the length done" becomes "the homes
         // actually on the done stretch are done".
@@ -90,7 +183,8 @@ const Graph = (() => {
           const counts = Homes.distribute(homePoints, [...remainingGeom, ...coveredGeom]);
           const onRemaining = counts.slice(0, remainingGeom.length).reduce((a, b) => a + b, 0);
           const total = counts.reduce((a, b) => a + b, 0);
-          if (total) estResidences = r.residences * onRemaining / total;
+          const onHalf = Homes.pointsOn(homePoints, halfPieces.map(h => h.pts)).length;
+          if (total) estResidences = r.residences * (onRemaining - onHalf / 2) / total;
         }
       } else if (r.status === 'Complete') {
         remainingGeom = []; coveredGeom = linestrings; estResidences = 0;
@@ -113,6 +207,7 @@ const Graph = (() => {
         rowIndex: r.rowIndex,
         partialGeometryRaw: r.partialGeometry,
         homePoints,
+        halfDone: halfPieces && halfPieces.length ? halfPieces : null,
       };
     }
     if (excluded.length) console.log(`Excluded ${excluded.length} non-residential features:`, excluded);
@@ -544,7 +639,7 @@ const Graph = (() => {
   }
 
   return {
-    isNonResidentialFeature, parseLinestrings, parsePartial, loadRoads,
+    isNonResidentialFeature, parseLinestrings, parsePartial, parsePartialSides, parseHalfDone, loadRoads,
     buildAdjacency, roadNetworkDistances, splitLongRoads, splitDisconnectedRoads, trimToHomes, residencesByHomes, partNameFor,
     bestFractionAcrossFragments, originalRangesForPart,
     SNAP_TOLERANCE_M,

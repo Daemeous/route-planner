@@ -84,6 +84,12 @@ const MapData = (() => {
         const on = Homes.pointsOn(rd.homePoints, rd.remainingGeometry);
         if (on.length) entry.homes = on;
       }
+      // Stretches with one side already delivered (graph.js parseHalfDone):
+      // walking directions mark that pavement "already done". Build-time only.
+      if (rd.halfDone) {
+        const mine = rd.halfDone.filter(h => Homes.pointsOn([h.pts[Math.floor(h.pts.length / 2)]], rd.remainingGeometry, 3).length);
+        if (mine.length) entry.halfDone = mine;
+      }
       // A road that was split (a long road cut into parts, or a same-named-
       // but-unrelated-fragments road cut into Areas) shares its row with
       // sibling parts on OTHER routes -- marking it done must write only
