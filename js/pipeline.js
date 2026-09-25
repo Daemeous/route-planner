@@ -63,6 +63,7 @@ const Pipeline = (() => {
   function buildSingleHub(rows, wardName, pubName, pubLat, pubLon, clusterOpts = {}) {
     let roads = Graph.loadRoads(rows, { ward: wardName });
     const originalGeometry = captureOriginalGeometry(roads);
+    roads = Graph.trimToHomes(roads); // no-op without home positions (data/homes)
     roads = Graph.splitLongRoads(roads);
     if (clusterOpts.sizeBy === 'effort') roads = Cluster.splitByEffort(roads, clusterOpts.targetSoft ?? 150);
     const adjacency = Graph.buildAdjacency(roads);
@@ -80,6 +81,7 @@ const Pipeline = (() => {
     let roadsAll = Graph.loadRoads(rows, { ward: wardName, excludeNonResidential: true });
     const originalGeometry = captureOriginalGeometry(roadsAll);
     roadsAll = Graph.splitDisconnectedRoads(roadsAll);
+    roadsAll = Graph.trimToHomes(roadsAll); // no-op without home positions (data/homes)
     const adjacencyAll = Graph.buildAdjacency(roadsAll);
     const settlements = Cluster.findSettlements(roadsAll, adjacencyAll, maxRadiusM);
 

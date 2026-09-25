@@ -2,6 +2,7 @@
 'use strict';
 if (typeof require !== 'undefined' && typeof Geo === 'undefined') { global.Geo = require('./geo'); }
 if (typeof require !== 'undefined' && typeof Graph === 'undefined') { global.Graph = require('./graph'); }
+if (typeof require !== 'undefined' && typeof Homes === 'undefined') { global.Homes = require('./homes'); }
 
 const Cluster = (() => {
   const WALK_RADIUS_M = 700;
@@ -22,6 +23,8 @@ const Cluster = (() => {
   // sparser (and gets weighted heavier) than it really is.
   const EFFORT_TOWN_PER_KM = 60, EFFORT_RURAL_PER_KM = 15, EFFORT_RURAL_WEIGHT = 250 / 40;
   const RURAL_DRIVE_PER_KM = 30; // below this (and over 2 km of road) an effort-sized route is driven
+  const DRIVE_SPREAD_KM = 1.5;   // ...as is one whose pieces spread wider than this (town routes stay within ~1.1 km)
+  const EFFORT_MERGE_GAP_M = 3000; // small effort-sized routes merge with a neighbour up to this far (they're driven anyway)
 
   function effortWeight(road) {
     const km = road.remainingGeometry.reduce((s, g) => s + Geo.segLength(g), 0) / 1000;
@@ -40,6 +43,7 @@ const Cluster = (() => {
   // the original sheet row (see mapData.js).
   function splitByEffort(roads, targetSoft) {
     const out = {};
+    const taken = new Set(Object.keys(roads));
     for (const [name, r] of Object.entries(roads)) {
       const effort = r.status === 'Complete' || r.residencesRemaining <= 0 ? 0 : r.residencesRemaining * effortWeight(r);
       const k = Math.ceil(effort / targetSoft);
@@ -48,14 +52,30 @@ const Cluster = (() => {
       const total = lens.reduce((a, b) => a + b, 0);
       if (!total) { out[name] = r; continue; }
       const chain = chainFragments(r.remainingGeometry);
-      // Walk the fragments cutting every total/k metres.
+      // Where to cut: every total/k metres -- or, when home positions are
+      // known (js/homes.js), halfway between homes so each part gets an equal
+      // share of the homes rather than of the road.
+      let cutsAt = null;
+      if (r.homePoints) {
+        const pos = [];
+        let off = 0;
+        chain.forEach(frag => {
+          for (const s of Homes.positionsAlong(r.homePoints, frag)) pos.push(off + s);
+          off += Geo.segLength(frag);
+        });
+        pos.sort((a, b) => a - b);
+        if (pos.length >= k) cutsAt = Array.from({ length: k - 1 }, (_, i) => { const j = Math.round((i + 1) * pos.length / k); return (pos[j - 1] + pos[j]) / 2; });
+      }
+      const edges = cutsAt ? [0, ...cutsAt, total] : null;
+      const stepFor = i => (edges ? edges[i + 1] - edges[i] : total / k);
+      // Walk the fragments, cutting after each part's length.
       const pieces = [];
       let cur = [], curLen = 0;
-      const step = total / k;
       chain.forEach(frag => {
         const { cum, total: fl } = Geo.cumLengths(frag);
         let from = 0;
         while (fl - from > 1e-6) {
+          const step = stepFor(pieces.length);
           const need = step - curLen;
           const to = Math.min(fl, from + need);
           const a = Geo.pointAtFraction(frag, cum, fl, from / fl), b = Geo.pointAtFraction(frag, cum, fl, to / fl);
@@ -68,13 +88,20 @@ const Cluster = (() => {
       });
       if (cur.length) pieces.push(cur);
       if (pieces.length < 2) { out[name] = r; continue; }
+      // Homes per part: where they really are when known, else by length.
+      let homesPer = null;
+      if (r.homePoints) {
+        const flat = pieces.flat(), owner = pieces.flatMap((g, i) => g.map(() => i));
+        const bySeg = Graph.residencesByHomes(r, flat);
+        if (bySeg) { homesPer = pieces.map(() => 0); bySeg.forEach((v, j) => { homesPer[owner[j]] += v; }); }
+      }
       pieces.forEach((geom, i) => {
         const len = geom.reduce((s, g) => s + Geo.segLength(g), 0);
-        const partName = / \(part [\d.]+\)$/.test(name) ? name.replace(/\)$/, `.${i + 1})`) : `${name} (part ${i + 1})`;
+        const partName = Graph.partNameFor(name, i, taken);
         out[partName] = {
           ...r,
           name: partName,
-          residencesRemaining: r.residencesRemaining * len / total,
+          residencesRemaining: homesPer ? homesPer[i] : r.residencesRemaining * len / total,
           fullGeometry: geom,
           remainingGeometry: geom,
           coveredGeometry: [],
@@ -258,7 +285,10 @@ const Cluster = (() => {
     // (Homes-based sizing keeps its original fixed merge ceiling; effort
     // sizing uses the caller's targetMax, since its units differ.)
     let out = mergeSmallClusters(clusters, adjacency, targetMin, byEffort ? targetMax : TARGET_MAX);
-    out = mergeSmallClustersByGeography(out, roads, targetMin, 1000, byEffort ? targetMax : TARGET_MAX);
+    // Trimming to home positions (Graph.trimToHomes) leaves hamlets as
+    // islands with no road between them, so they need the wider merge too.
+    const trimmed = Object.values(eligible).some(r => r.homesTrimmed);
+    out = mergeSmallClustersByGeography(out, roads, targetMin, byEffort || trimmed ? EFFORT_MERGE_GAP_M : 1000, byEffort ? targetMax : TARGET_MAX);
 
     for (const c of out) {
       const minD = Math.min(...c.roads.map(n => distFromStart[n]));
@@ -268,10 +298,16 @@ const Cluster = (() => {
       else if (minD <= hybridRadiusM) c.kind = 'hybrid';
       else c.kind = 'drive';
       // Effort sizing: a long, sparse route is a lane to drive along and
-      // deliver, whatever its distance from the start.
+      // deliver, whatever its distance from the start -- and so is one made
+      // of clusters spread out across the countryside (once home positions
+      // trim the empty road between hamlets, what's left can look dense).
       if (byEffort) {
-        const km = c.roads.reduce((s, n) => s + eligible[n].remainingGeometry.reduce((a, g) => a + Geo.segLength(g), 0), 0) / 1000;
-        if (km > 2 && c.residences / km < RURAL_DRIVE_PER_KM) c.kind = 'drive';
+        const geoms = c.roads.flatMap(n => eligible[n].remainingGeometry);
+        const km = geoms.reduce((a, g) => a + Geo.segLength(g), 0) / 1000;
+        const pts = geoms.flat();
+        const lons = pts.map(p => p[0]), lats = pts.map(p => p[1]);
+        const spreadKm = pts.length ? Geo.distM([Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]) / 1000 : 0;
+        if ((km > 2 && c.residences / km < RURAL_DRIVE_PER_KM) || spreadKm > DRIVE_SPREAD_KM) c.kind = 'drive';
       }
       c.residences = Math.round(c.residences * 10) / 10;
       if (c.size != null) c.size = Math.round(c.size);

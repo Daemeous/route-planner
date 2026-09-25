@@ -86,6 +86,10 @@ function applyLoadedData({ rows, networkRows, wards, missing, headerRow }) {
   // never route candidates, only used to route walking directions. Empty
   // for a sheet without the marker.
   state.networkRows = networkRows || [];
+  // Where along each road its homes are, if this district has a file for it
+  // (data/homes/<district>.json, see js/homes.js). Loaded in the background;
+  // the build waits for it. Without it, homes are spread evenly along roads.
+  state.homesPromise = loadHomePositions();
   state.wards = wards;
   setBanner(banner, 'ok', `Loaded ${rows.length} roads across ${wards.length} ward${wards.length === 1 ? '' : 's'}.`);
 
@@ -94,6 +98,23 @@ function applyLoadedData({ rows, networkRows, wards, missing, headerRow }) {
   enableStep('step2');
   fillConstituencyGuess();
   onWardOrStartModeChange();
+}
+
+async function loadHomePositions() {
+  state.homesNote = '';
+  const withDistrict = state.rows.find(r => r.constituency);
+  const district = withDistrict ? withDistrict.constituency : $('constituencyName').value.trim();
+  if (!district) return;
+  const file = `data/homes/${Publish.slugify(district)}.json`;
+  try {
+    const res = await fetch(file, { cache: 'no-cache' });
+    if (!res.ok) { state.homesNote = `No home-position file for ${district} (${file}) -- homes are spread evenly along each road.`; return; }
+    const index = await res.json();
+    const { matched, withHomes } = Homes.attach([...state.rows, ...(state.networkRows || [])], index);
+    state.homesNote = `Home positions (${file}, made ${index.generated}): ${matched} of ${withHomes} roads -- empty stretches of long roads are left out of routes.`;
+  } catch (e) {
+    state.homesNote = `Couldn't load home positions (${e.message}) -- homes are spread evenly along each road.`;
+  }
 }
 
 function fillConstituencyGuess() {
@@ -324,6 +345,8 @@ $('buildBtn').onclick = async () => {
     const wardScale = $('wardScale').value;
     const startMode = document.querySelector('input[name=startMode]:checked').value;
     const opts = currentClusterOpts();
+    await state.homesPromise;
+    if (state.homesNote) logLine(log, state.homesNote);
 
     let payload;
     if (routeType() === 'general') {
@@ -569,5 +592,5 @@ async function pollUntilLive(url, onUpdate, { intervalMs = 6000, maxAttempts = 2
 }
 
 // ── Load the app viewer template once, up front ──
-fetch('app_template.html').then(r => r.text()).then(t => { window.__APP_TEMPLATE__ = t; })
+fetch('app_template.html', { cache: 'no-cache' }).then(r => r.text()).then(t => { window.__APP_TEMPLATE__ = t; })
   .catch(() => { window.__APP_TEMPLATE__ = null; });

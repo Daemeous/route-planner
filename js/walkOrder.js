@@ -33,7 +33,10 @@
 // Denser roads on the same route (a village estate) still get the
 // pavement-by-pavement walk.
 //
-// Input roads are the app payload shape: {street, res, segments:[[[lat,lon],...]]}.
+// Input roads are the app payload shape: {street, res, segments:[[[lat,lon],...]]},
+// optionally with homes: [[lat,lon],...] -- where along the road its homes
+// are (js/homes.js). With them, each step gets the homes actually on its
+// stretch; without, a road's homes are spread along it by length.
 'use strict';
 
 const WalkOrder = (() => {
@@ -260,6 +263,21 @@ const WalkOrder = (() => {
       e.res = roads[e.road].res * e.len / keptLen[e.road];
       e.perKm = keptLen[e.road] ? roads[e.road].res / keptLen[e.road] * 1000 : 0;
     }
+    // Known home positions: share each road's homes by the edge they're on.
+    roads.forEach((rd, ri) => {
+      if (!rd.homes || !rd.homes.length) return;
+      const mine = edges.filter(e => e.road === ri);
+      if (!mine.length) return;
+      const counts = mine.map(() => 0);
+      for (const h of rd.homes) {
+        const p = proj.toXY(h);
+        let best = -1, bd = Infinity;
+        mine.forEach((e, i) => { const d = nearestOn(e.pts, cumulative(e.pts), p).d; if (d < bd) { bd = d; best = i; } });
+        if (best >= 0 && bd <= 15) counts[best]++;
+      }
+      const total = counts.reduce((a, b) => a + b, 0);
+      if (total) mine.forEach((e, i) => { e.res = rd.res * counts[i] / total; });
+    });
     // A road with homes but next to no geometry left (a sliver after most of
     // it was marked done, or odd data) would lose its homes. Hand them to the
     // nearest road segment on the route instead, and name it in that step.

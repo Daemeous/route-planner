@@ -85,7 +85,10 @@ const RouteDirections = (() => {
     let planned = 0, failed = 0;
     for (const route of payload.routes) {
       try {
-        const roads = route.roads.map(rd => ({ street: rd.name, res: rd.residences, segments: toLatLngSegments(rd.geometry) }))
+        const roads = route.roads.map(rd => ({
+          street: rd.name, res: rd.residences, segments: toLatLngSegments(rd.geometry),
+          homes: rd.homes ? rd.homes.map(([lon, lat]) => [lat, lon]) : null,
+        }))
           .filter(rd => rd.segments.length);
         const plan = WalkOrder.plan({ roads }, { start: startFor(route, payload), network, driveSparse: route.kind === 'drive' });
         route.directions = compact(plan);

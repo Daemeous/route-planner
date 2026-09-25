@@ -4,6 +4,7 @@
 'use strict';
 if (typeof require !== 'undefined') {
   if (typeof Geo === 'undefined') global.Geo = require('./geo');
+  if (typeof Homes === 'undefined') global.Homes = require('./homes');
   if (typeof Graph === 'undefined') global.Graph = require('./graph');
   if (typeof Cluster === 'undefined') global.Cluster = require('./cluster');
   if (typeof SecretWords === 'undefined') global.SecretWords = require('./secretWords');
@@ -77,6 +78,12 @@ const MapData = (() => {
         geometry: rd.remainingGeometry,
         rowIndex: rd.rowIndex,
       };
+      // Home positions on this part (build-time only: walking directions use
+      // them to give each step its real homes; not copied into the app).
+      if (rd.homePoints) {
+        const on = Homes.pointsOn(rd.homePoints, rd.remainingGeometry);
+        if (on.length) entry.homes = on;
+      }
       // A road that was split (a long road cut into parts, or a same-named-
       // but-unrelated-fragments road cut into Areas) shares its row with
       // sibling parts on OTHER routes -- marking it done must write only
@@ -93,6 +100,7 @@ const MapData = (() => {
         // only proposes/updates the slice it covers, so whatever's already
         // recorded for the OTHER slices of this row must be preserved.
         entry.currentPartialGeometry = orig.partialGeometryRaw;
+        if (rd.homesTrimmed) { entry.homesTrimmed = true; entry.rootName = rd.rootName; }
       }
       return entry;
     });
@@ -119,6 +127,48 @@ const MapData = (() => {
     return route;
   }
 
+  // Rows cut down to their stretches with homes (Graph.trimToHomes) have
+  // empty bits no route walks. So that reporting every kept part done still
+  // completes the row in the tracker, each part's REPORTED range is
+  // stretched over the empty bits beside it (halfway to the next part, or
+  // to the end), and a fragment no part touches goes to a neighbouring
+  // part. What's walked is unchanged -- only what "done" covers.
+  function extendTrimmedReportRanges(routesOut, originalGeometry) {
+    if (!originalGeometry) return;
+    const byRow = new Map();
+    for (const r of routesOut) for (const e of r.roads) {
+      if (!e.homesTrimmed || !e.originalRanges || !e.originalRanges.length) continue;
+      if (!byRow.has(e.rootName)) byRow.set(e.rootName, []);
+      byRow.get(e.rootName).push(e);
+    }
+    for (const [root, entries] of byRow) {
+      const orig = originalGeometry[root];
+      if (!orig) continue;
+      const per = orig.fullGeometry.map(() => []);
+      entries.forEach(e => e.originalRanges.forEach(rg => { if (per[rg.fragIdx]) per[rg.fragIdx].push(rg); }));
+      per.forEach(list => {
+        if (!list.length) return;
+        list.sort((x, y) => x.a - y.a);
+        list[0].a = 0;
+        list[list.length - 1].b = 1;
+        for (let i = 1; i < list.length; i++) {
+          if (list[i].a > list[i - 1].b) { const mid = (list[i - 1].b + list[i].a) / 2; list[i - 1].b = mid; list[i].a = mid; }
+        }
+      });
+      per.forEach((list, fi) => {
+        if (list.length) return;
+        let owner = null;
+        for (let d = 1; d < per.length && !owner; d++) {
+          for (const j of [fi - d, fi + d]) {
+            const hit = per[j] && per[j].length && entries.find(e => e.originalRanges.some(rg => rg.fragIdx === j));
+            if (hit) { owner = hit; break; }
+          }
+        }
+        (owner || entries[0]).originalRanges.push({ fragIdx: fi, a: 0, b: 1 });
+      });
+    }
+  }
+
   function boundsOf(routesOut) {
     const allPts = [];
     for (const r of routesOut) for (const rd of r.roads) for (const seg of rd.geometry) allPts.push(...seg);
@@ -129,6 +179,7 @@ const MapData = (() => {
   function buildMapData(roads, adjacency, clusters, eventStart, pubLabel, wardName, originalGeometry) {
     const ids = genIds(clusters.length);
     const routesOut = clusters.map((c, i) => routeFromCluster(ids[i], c, roads, adjacency, eventStart, pubLabel, undefined, originalGeometry));
+    extendTrimmedReportRanges(routesOut, originalGeometry);
     const secrets = SecretWords.assignSecretWords(routesOut.map(r => r.id), wardName);
     for (const r of routesOut) r.secret = secrets[r.id];
     return {
@@ -155,6 +206,7 @@ const MapData = (() => {
         routesOut.push(routeFromCluster(cid, c, roads, adjacency, hub.point, hub.label, hub.id, originalGeometry, general));
       }
     }
+    extendTrimmedReportRanges(routesOut, originalGeometry);
     const secrets = SecretWords.assignSecretWords(routesOut.map(r => r.id), wardName);
     for (const r of routesOut) r.secret = secrets[r.id];
     if (general) {

@@ -6,6 +6,7 @@
 // roadGeometry, partialGeometry).
 'use strict';
 if (typeof require !== 'undefined' && typeof Geo === 'undefined') { global.Geo = require('./geo'); }
+if (typeof require !== 'undefined' && typeof Homes === 'undefined') { global.Homes = require('./homes'); }
 
 const Graph = (() => {
   const SNAP_TOLERANCE_M = 50;
@@ -64,6 +65,10 @@ const Graph = (() => {
       const lengths = linestrings.map(Geo.segLength);
       const totalLen = lengths.reduce((a, b) => a + b, 0);
       const partial = parsePartial(r.partialGeometry);
+      // Where the homes are along the road (data/homes, see js/homes.js), as
+      // points on the line -- null if unknown, and everything below then
+      // falls back to spreading the homes evenly by length.
+      const homePoints = r.homeFracs && typeof Homes !== 'undefined' ? Homes.pointsOnLine(linestrings, r.homeFracs) : null;
 
       let remainingGeom, coveredGeom, estResidences;
       if (r.status === 'In_Progress') {
@@ -79,6 +84,14 @@ const Graph = (() => {
         const remainingLen = totalLen - coveredLen;
         const fracRemaining = totalLen ? remainingLen / totalLen : 0;
         estResidences = r.residences * fracRemaining;
+        // With home positions, "40% of the length done" becomes "the homes
+        // actually on the done stretch are done".
+        if (homePoints) {
+          const counts = Homes.distribute(homePoints, [...remainingGeom, ...coveredGeom]);
+          const onRemaining = counts.slice(0, remainingGeom.length).reduce((a, b) => a + b, 0);
+          const total = counts.reduce((a, b) => a + b, 0);
+          if (total) estResidences = r.residences * onRemaining / total;
+        }
       } else if (r.status === 'Complete') {
         remainingGeom = []; coveredGeom = linestrings; estResidences = 0;
       } else {
@@ -99,6 +112,7 @@ const Graph = (() => {
         totalLengthM: totalLen,
         rowIndex: r.rowIndex,
         partialGeometryRaw: r.partialGeometry,
+        homePoints,
       };
     }
     if (excluded.length) console.log(`Excluded ${excluded.length} non-residential features:`, excluded);
@@ -255,6 +269,30 @@ const Graph = (() => {
     ];
   }
 
+  // Name for the i-th part cut from road `name`: "X (part 2)", or
+  // "X (part 2.1)" when `name` is already a part. Skips (and then claims)
+  // anything already in `taken` -- a road split at junctions keeps its
+  // leftover under its own name, and a later split of that leftover must
+  // not reuse "(part 1)" etc. and overwrite the first split's parts.
+  function partNameFor(name, i, taken) {
+    const isPart = / \(part [\d.]+\)$/.test(name);
+    let n = i + 1, cand;
+    do { cand = isPart ? name.replace(/\)$/, `.${n})`) : `${name} (part ${n})`; n++; } while (taken && taken.has(cand));
+    if (taken) taken.add(cand);
+    return cand;
+  }
+
+  // Share `road`'s remaining homes between pieces of its remaining geometry,
+  // by where its homes actually are. Returns an array of residences, or null
+  // when positions are unknown (callers keep their length-based figures).
+  function residencesByHomes(road, pieces) {
+    if (!road.homePoints || !pieces.length) return null;
+    const counts = Homes.distribute(road.homePoints, pieces);
+    const total = counts.reduce((a, b) => a + b, 0);
+    if (!total) return null;
+    return counts.map(c => road.residencesRemaining * c / total);
+  }
+
   function splitLongRoads(roads, { threshold = 100, minSegmentRes = 40, edgeMargin = 0.08, mergeTolerance = 0.08, tolerance = SNAP_TOLERANCE_M } = {}) {
     const eligibleNames = Object.keys(roads).filter(n => roads[n].status !== 'Complete');
     const otherEndpoints = {};
@@ -265,6 +303,7 @@ const Graph = (() => {
     }
 
     const newRoads = {};
+    const taken = new Set(Object.keys(roads));
     for (const [name, r] of Object.entries(roads)) {
       if (r.status === 'Complete' || r.residencesRemaining <= threshold || !r.remainingGeometry.length) {
         newRoads[name] = r;
@@ -330,6 +369,13 @@ const Graph = (() => {
 
       if (!anySplit) { newRoads[name] = r; continue; }
 
+      // Where the homes really are, when known (the split points themselves
+      // are still decided by the length-based estimate above).
+      const byHomes = residencesByHomes(r, [...untouched.map(([pts]) => pts), ...splitParts.map(([pts]) => pts)]);
+      if (byHomes) {
+        untouched.forEach((u, i) => { u[1] = byHomes[i]; });
+        splitParts.forEach((sp, i) => { sp[1] = byHomes[untouched.length + i]; });
+      }
       if (untouched.length) {
         const remGeom = untouched.map(([pts]) => pts);
         newRoads[name] = {
@@ -342,7 +388,7 @@ const Graph = (() => {
         };
       }
       splitParts.forEach(([pts, res], i) => {
-        const partName = `${name} (part ${i + 1})`;
+        const partName = partNameFor(name, i, taken);
         newRoads[partName] = {
           ...r,
           name: partName,
@@ -358,6 +404,62 @@ const Graph = (() => {
       });
     }
     return newRoads;
+  }
+
+  // Long roads often have their homes bunched in a village with long empty
+  // stretches between (Newport Road, Gnosall: a third of its 14.7 km has no
+  // homes). With home positions, cut a road down to the stretches that
+  // have homes -- homes no more than gapM apart, plus marginM either side --
+  // so routes stop walking or driving the empty bits. The dropped stretches
+  // are still walkable for directions (they're in the walking network), and
+  // mapData.js stretches each kept part's REPORTED range over the empty
+  // bits next to it, so reporting every part done still completes the row.
+  // Roads without positions, or where trimming would keep 85%+ of the
+  // length anyway, are left exactly as they were.
+  function trimToHomes(roads, { gapM = 250, marginM = 30, keepIfOverFrac = 0.85 } = {}) {
+    const out = {};
+    const taken = new Set(Object.keys(roads));
+    for (const [name, r] of Object.entries(roads)) {
+      if (!r.homePoints || r.status === 'Complete' || r.residencesRemaining <= 0 || !r.remainingGeometry.length) { out[name] = r; continue; }
+      const stretches = []; // {pts, homes}
+      let totalLen = 0, keptLen = 0, placed = 0;
+      for (const frag of r.remainingGeometry) {
+        const { cum, total } = Geo.cumLengths(frag);
+        totalLen += total;
+        const pos = Homes.positionsAlong(r.homePoints, frag);
+        placed += pos.length;
+        let i = 0;
+        while (i < pos.length) {
+          let j = i;
+          while (j + 1 < pos.length && pos[j + 1] - pos[j] <= gapM) j++;
+          const a = Math.max(0, pos[i] - marginM), b = Math.min(total, pos[j] + marginM);
+          if (b - a > 1) {
+            const pts = [Geo.pointAtFraction(frag, cum, total, a / total), ...frag.filter((_, k) => cum[k] > a && cum[k] < b), Geo.pointAtFraction(frag, cum, total, b / total)];
+            stretches.push({ pts, homes: j - i + 1 });
+            keptLen += b - a;
+          }
+          i = j + 1;
+        }
+      }
+      if (!placed || !stretches.length || keptLen >= keepIfOverFrac * totalLen) { out[name] = r; continue; }
+      const one = stretches.length === 1;
+      stretches.forEach((st, k) => {
+        const partName = one ? name : partNameFor(name, k, taken);
+        out[partName] = {
+          ...r,
+          name: partName,
+          residencesRemaining: r.residencesRemaining * st.homes / placed,
+          fullGeometry: [st.pts],
+          remainingGeometry: [st.pts],
+          coveredGeometry: [],
+          totalLengthM: Geo.segLength(st.pts),
+          splitFrom: name,
+          rootName: r.rootName || name,
+          homesTrimmed: true,
+        };
+      });
+    }
+    return out;
   }
 
   function indexGroupsByIsolation(fragments, isolationThresholdM) {
@@ -414,12 +516,17 @@ const Graph = (() => {
       for (const frag of r.coveredGeometry) coveredByGroup[nearestGroup(frag)].push(frag);
 
       const totalRemainingLen = r.remainingGeometry.reduce((s, f) => s + Geo.segLength(f), 0) || 1;
+      const groupsHomes = residencesByHomes(r, r.remainingGeometry);
+      const groupRes = gi => {
+        if (!groupsHomes) return null;
+        return r.remainingGeometry.reduce((s, f, fi) => s + (remainingByGroup[gi].includes(f) ? groupsHomes[fi] : 0), 0);
+      };
 
       idxGroups.forEach((_, gi) => {
         const groupName = `${name} (Area ${gi + 1})`;
         const groupRemaining = remainingByGroup[gi];
         const groupLen = groupRemaining.reduce((s, f) => s + Geo.segLength(f), 0);
-        const resShare = r.residencesRemaining * (groupLen / totalRemainingLen);
+        const resShare = groupRes(gi) ?? r.residencesRemaining * (groupLen / totalRemainingLen);
         newRoads[groupName] = {
           ...r,
           name: groupName,
@@ -438,7 +545,7 @@ const Graph = (() => {
 
   return {
     isNonResidentialFeature, parseLinestrings, parsePartial, loadRoads,
-    buildAdjacency, roadNetworkDistances, splitLongRoads, splitDisconnectedRoads,
+    buildAdjacency, roadNetworkDistances, splitLongRoads, splitDisconnectedRoads, trimToHomes, residencesByHomes, partNameFor,
     bestFractionAcrossFragments, originalRangesForPart,
     SNAP_TOLERANCE_M,
   };
