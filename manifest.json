@@ -1,9 +1,4 @@
 {
-  "stafford-baswich.html": {
-    "ward": "Baswich",
-    "constituency": "Stafford",
-    "generatedAt": "2026-09-09T13:10:48.961Z"
-  },
   "stafford-seighford-church-eaton.html": {
     "ward": "Seighford & Church Eaton",
     "constituency": "Stafford",
@@ -33,5 +28,10 @@
     "ward": "Holmcroft",
     "constituency": "Stafford",
     "generatedAt": "2026-09-19T11:09:33.353Z"
+  },
+  "stafford-holmcroft2.html": {
+    "ward": "Holmcroft",
+    "constituency": "Stafford",
+    "generatedAt": "2026-09-25T08:55:06.976Z"
   }
 }
