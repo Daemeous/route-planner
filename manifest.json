@@ -14,30 +14,10 @@
     "constituency": "Stafford",
     "generatedAt": "2026-09-12T17:19:23.699Z"
   },
-  "stafford-holmcroft.html": {
-    "ward": "Holmcroft",
-    "constituency": "Stafford",
-    "generatedAt": "2026-09-18T10:09:55.270Z"
-  },
   "stafford-seighford-church-eaton1.html": {
     "ward": "Seighford & Church Eaton",
     "constituency": "Stafford",
     "generatedAt": "2026-09-18T10:14:49.750Z"
-  },
-  "stafford-holmcroft1.html": {
-    "ward": "Holmcroft",
-    "constituency": "Stafford",
-    "generatedAt": "2026-09-19T11:09:33.353Z"
-  },
-  "stafford-holmcroft2.html": {
-    "ward": "Holmcroft",
-    "constituency": "Stafford",
-    "generatedAt": "2026-09-25T08:55:06.976Z"
-  },
-  "stafford-holmcroft3.html": {
-    "ward": "Holmcroft",
-    "constituency": "Stafford",
-    "generatedAt": "2026-09-25T21:12:34.571Z"
   },
   "stafford-holmcroft4.html": {
     "ward": "Holmcroft",
@@ -48,5 +28,10 @@
     "ward": "Holmcroft",
     "constituency": "Stafford",
     "generatedAt": "2026-09-26T08:04:21.238Z"
+  },
+  "stafford-holmcroft.html": {
+    "ward": "Holmcroft",
+    "constituency": "Stafford",
+    "generatedAt": "2026-09-26T08:23:04.451Z"
   }
 }
