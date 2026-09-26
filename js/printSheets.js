@@ -295,7 +295,7 @@ const PrintSheets = (() => {
           .addTo(map).bindTooltip(escHtml(spec.hub.label || 'Start'), { permanent: false });
       }
       if (spec.marker) {
-        var parkingHtml = '<span style="display:block;width:100%;height:100%;border-radius:50%;background:' + spec.color + ';border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.2);"></span>';
+        var parkingHtml = '<span style="display:block;width:100%;height:100%;border-radius:50%;background:' + spec.color + ';border:2px solid #fff;"></span>';
         L.marker(spec.marker.point, { icon: L.divIcon({ className: '', html: parkingHtml, iconSize: [12, 12] }) })
           .addTo(map).bindTooltip(escHtml(spec.marker.label || 'Parking'), { permanent: false });
       }
@@ -473,7 +473,7 @@ const PrintSheets = (() => {
   function startMarker(map, spec) {
     if (!spec.start) return;
     var icon = spec.start.kind === 'parking'
-      ? L.divIcon({ className: '', html: '<span style="display:block;width:14px;height:14px;border-radius:50%;background:' + spec.color + ';border:2.5px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.3)"></span>', iconSize: [14, 14] })
+      ? L.divIcon({ className: '', html: '<span style="display:block;width:14px;height:14px;border-radius:50%;background:' + spec.color + ';border:2.5px solid #fff"></span>', iconSize: [14, 14] })
       : L.divIcon({ className: 'start-dot', iconSize: [14, 14] });
     L.marker(spec.start.latlng, { icon: icon, keyboard: false }).addTo(map);
   }
@@ -581,7 +581,8 @@ const PrintSheets = (() => {
     .page { margin: 0; outline: none; box-shadow: none; break-after: page; }
     .page + .page, .page + template + .page { margin-top: 0; }
     .no-print { display: none; }
-    .num, .route-titlebar, .panel-tag, .panel-box-label, .leg-num { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .num, .route-titlebar, .panel-tag, .panel-box-label, .lmap, .lmap *, .leaflet-mini-map, .leaflet-mini-map * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .leaflet-control-attribution { background: #fff !important; }
   }
   .print-bar { position: sticky; top: 0; background: #15181d; color: white; padding: 10px 16px; text-align: center; z-index: 1000; }
   .print-bar button { background: #1a73e8; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -640,10 +641,10 @@ const PrintSheets = (() => {
   .page.classic .route-qr svg { width: 110px; height: 110px; }
   .page.classic .route-qr-url { font-size: 8.5px; color: #888; word-break: break-all; }
   /* map decorations */
-  .leg-num { width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; color: #fff; font-size: 9.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+  .leg-num { width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; color: #fff; font-size: 9.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; }
   .leg-arrow { width: 0; height: 0; margin: -4px 0 0 -3px; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 7px solid #fff; transform-origin: 3px 4px; }
-  .road-label { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 9.5px; font-weight: 700; color: #15181d; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; pointer-events: none; }
-  .start-dot { background: #15181d; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.2); }
+  .road-label { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 9.5px; font-weight: 700; color: #15181d; -webkit-text-stroke: 3px #fff; paint-order: stroke fill; pointer-events: none; }
+  .start-dot { background: #15181d; border: 2px solid white; border-radius: 50%; }
 </style></head><body>
 <div class="print-bar no-print"><button id="printBtn" disabled onclick="window.print()">Loading maps…</button>
   <label class="sides"><input type="checkbox" id="bothSides"> My printer prints on both sides of the paper</label>
@@ -689,7 +690,9 @@ ${classicSpecs.length ? mapInitScript(classicSpecs).replace("document.getElement
   * { box-sizing: border-box; }
   body { font-family: 'Segoe UI', system-ui, sans-serif; color: #15181d; margin: 0; background: #e8e8e6; }
   .sheet { background: white; width: 210mm; min-height: 297mm; margin: 0 auto 12px; padding: 16mm; page-break-after: always; }
-  @media print { body { background: white; } .sheet { margin: 0; box-shadow: none; page-break-after: always; } .no-print { display: none; } }
+  @media print { body { background: white; } .sheet { margin: 0; box-shadow: none; page-break-after: always; } .no-print { display: none; }
+    .route-titlebar, .leaflet-mini-map, .leaflet-mini-map * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .leaflet-control-attribution { background: #fff !important; } }
   .cover-eyebrow { text-align:center; color:#5b6470; font-weight:700; letter-spacing:.06em; font-size:13px; }
   .cover h1 { text-align:center; font-size:30px; margin:6px 0 4px; }
   .cover-stats { text-align:center; color:#5b6470; font-size:13px; margin-bottom:14px; }
@@ -720,8 +723,8 @@ ${classicSpecs.length ? mapInitScript(classicSpecs).replace("document.getElement
   .print-bar { position:sticky; top:0; background:#15181d; color:white; padding:10px 16px; text-align:center; z-index:10; }
   .print-bar button { background:#1a73e8; color:white; border:none; border-radius:6px; padding:8px 16px; font-size:13px; font-weight:600; cursor:pointer; }
   .print-bar button:disabled { background:#5b6470; cursor:not-allowed; }
-  .road-label { position:absolute; left:0; top:0; white-space:nowrap; font-size:10px; font-weight:700; color:#15181d; text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff,0 0 3px #fff,0 0 3px #fff; pointer-events:none; }
-  .start-dot { background:#15181d; border:2px solid white; border-radius:50%; box-shadow:0 0 0 1px rgba(0,0,0,.2); }
+  .road-label { position:absolute; left:0; top:0; white-space:nowrap; font-size:10px; font-weight:700; color:#15181d; -webkit-text-stroke:3px #fff; paint-order:stroke fill; pointer-events:none; }
+  .start-dot { background:#15181d; border:2px solid white; border-radius:50%; }
 </style></head><body>
 <div class="print-bar no-print"><button id="printBtn" disabled onclick="window.print()">Loading maps…</button></div>
 ${cover}
