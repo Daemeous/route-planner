@@ -167,7 +167,23 @@ protocol its main site already uses (see leaflet-pipeline's
 - A road that's part of a longer, split road only reports the slice this
   route actually covers (via `partial_geometry`), never the whole
   original row, so two different routes covering different parts of the
-  same long road never stomp on each other.
+  same long road never stomp on each other. For an authorised editor this
+  uses `action: "markStretch"`, which adds the slice to the row's *live*
+  value on the tracker (under a lock) and sets its status to match.
+- **Ticking walking-directions steps reports as you go** (authorised
+  editors only). Each step knows which tracker stretch it covers, one side
+  of the road or both, worked out when the routes are built
+  (`js/routeDirections.js`, `marks` on each step). A ticked step is sent
+  with `markStretch`: the road goes In_Progress with that stretch drawn on
+  the tracker, and Complete once this route's steps on it are all ticked (a
+  road shared with other routes: once every stretch of it is in).
+  Unticking takes the stretch back off. Ticks made with no signal are kept
+  on the phone and sent when it comes back; the directions panel says
+  what's still waiting. Not-yet-authorised people's ticks stay on the
+  phone, since one suggestion per step would swamp the review queue; they
+  report roads through the panel below the directions as before. Needs a
+  tracker running a `leaflet-map.gs.txt` with `markStretch`, and routes
+  built after this was added.
 
 There is no anonymous write path — reporting *anything* requires signing
 in, since the backend needs a verified email to decide authorised-direct
@@ -176,9 +192,13 @@ vs pending-for-review. Read-only browsing needs no sign-in at all.
 ## Publishing & the 14-day freshness rule
 
 Publishing (step 6) pushes straight to the GitHub repo this tool is itself
-hosted from, via the GitHub REST API using a personal access token you
-provide (an organiser action, not something volunteers ever do). The
-filename is `<constituency-slug>-<ward-slug>.html`.
+hosted from, through a small shared Apps Script (`apps_script/publish-backend.gs`)
+that holds the GitHub token, so nobody publishing needs one. The
+filename is `<constituency-slug>-<ward-slug>.html` (numbered if that's
+taken), and the printable route sheets go up beside it as
+`…-sheets.html`, so they can be sent as a link: a phone's preview of an
+`.html` file sent over WhatsApp doesn't run the scripts that draw the
+sheets' maps and steps.
 
 Every publish also deletes any previously-published page more than 14
 days old (tracked in `manifest.json` alongside the pages) and reports what

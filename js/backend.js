@@ -2,7 +2,7 @@
 // leaflet-map Apps Script deployment (its MAP_CONFIG.APPS_SCRIPT_URL), the
 // SAME backend the main tracker site's core.js already uses. No separate
 // sheet or backend is created by this app: an authorised signed-in editor's
-// taps write directly (action:"update"/"partial"); anyone else who's
+// taps write directly (action:"update"/"markStretch"); anyone else who's
 // signed in has their taps queued as a pending suggestion
 // (action:"propose") for an authorised editor to review in the main
 // leaflet-map site's admin panel -- exactly the same accept/deny queue
@@ -49,6 +49,14 @@ const Backend = (() => {
     if (road.rowIndex == null) return { ok: false, error: 'This road has no source row to report against.' };
 
     const isPart = Array.isArray(road.originalRanges) && road.originalRanges.length > 0;
+    // Authorised, part of a split road: add/remove just this part's slice
+    // against the row's live value, which also sets the row's status. Older
+    // trackers without markStretch fall through to the whole-value write.
+    if (authorised && isPart) {
+      const tokens = road.originalRanges.map(r => `seg${r.fragIdx}:${r.a.toFixed(4)}-${r.b.toFixed(4)}:B`);
+      const res = await markStretch(appsScriptUrl, { rowIndex: road.rowIndex, [done ? 'add' : 'remove']: tokens });
+      if (res.ok || res.error !== 'Unknown action') return res.ok ? { ok: true, pending: false, status: res.status } : res;
+    }
     const action = authorised ? (isPart ? 'partial' : 'update') : 'propose';
     const body = { action, ...tp, rowIndex: road.rowIndex };
 
@@ -66,6 +74,19 @@ const Backend = (() => {
     const data = await call(appsScriptUrl, body);
     if (!data.ok) return { ok: false, error: data.error || 'Request failed.' };
     return { ok: true, pending: !authorised };
+  }
+
+  // Adds and/or removes done stretches ("seg<n>:<from>-<to>:<B|S|F>") on
+  // one tracker row, merged server-side with whatever's already recorded
+  // there; the tracker then sets the row In_Progress, or Complete once it's
+  // fully covered or `complete` says this route has now done all of it.
+  // Authorised editors only. Returns {ok, status?, error?}.
+  async function markStretch(appsScriptUrl, { rowIndex, add = [], remove = [], complete = false }) {
+    const tp = tokenParam();
+    if (!tp) return { ok: false, error: 'Not signed in.', signedOut: true };
+    const data = await call(appsScriptUrl, { action: 'markStretch', ...tp, rowIndex, add, remove, complete });
+    if (!data.ok) return { ok: false, error: data.error || 'Request failed.' };
+    return { ok: true, status: data.status };
   }
 
   // Whole-route completion is just every road on it, one call each --
@@ -86,7 +107,7 @@ const Backend = (() => {
     return data.ok ? data.statuses : {};
   }
 
-  return { verify, markRoadDone, markRouteDone, pendingStatus, mergePartialGeometry };
+  return { verify, markRoadDone, markRouteDone, markStretch, pendingStatus, mergePartialGeometry };
 })();
 
 if (typeof module !== 'undefined') module.exports = Backend;

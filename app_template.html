@@ -183,6 +183,8 @@
   .dir-side{font-weight:500;color:#777;font-size:11.5px}
   .dir-cue{font-size:12px;color:#333;line-height:1.45;margin-top:1px}
   .dir-meta{font-size:11px;color:#999;margin-top:2px}
+  .dir-sync{font-size:11.5px;color:#5b6470;margin:4px 0 6px;line-height:1.45}
+  .dir-sync:empty{display:none}
   .dir-tick{width:28px;height:28px;border-radius:50%;border:2px solid #d4d7db;background:#fff;color:#c0c4c9;font-size:13px;font-weight:800;cursor:pointer;padding:0}
   .dir-step.done .dir-tick{background:#0a8a3a;border-color:#0a8a3a;color:#fff}
   .dir-step.done .dir-street{text-decoration:line-through;color:#9aa0a6}
@@ -324,11 +326,14 @@ async function doSignIn() {
     alert('Sign-in failed: ' + e.message);
   }
   refreshReportPanelIfActive(currentSel);
+  refreshStepSyncNote(currentSel);
+  syncAllSteps();
 }
 function doSignOut() {
   Auth.signOut();
   auth.signedIn = false; auth.email = null; auth.authorised = false; auth.banned = false;
   refreshReportPanelIfActive(currentSel);
+  refreshStepSyncNote(currentSel);
 }
 
 async function setRoadDone(routeId, roadId, done) {
@@ -581,6 +586,7 @@ function directionsHtml(routeId) {
     ? '<b>Lanes:</b> drive along delivering <b>both sides</b>, then head back. <b>Streets:</b> park and walk, keeping the road on your left so traffic comes towards you, with the letterboxes on your right.'
     : 'Keep the <b>road on your left</b>, so traffic comes towards you. The letterboxes you\'re doing are on your <b>right</b>. Only cross where a step tells you to.') + '</div>';
   html += '<div class="dir-head"><span>Directions</span><span>' + done.size + ' of ' + steps.length + ' steps · ' + metresText(d.stats.walkM) + (lanes ? ' in all' : ' walk') + '</span></div>';
+  html += '<div class="dir-sync" id="dirSync">' + stepSyncNote(routeId) + '</div>';
   html += '<ol class="dir-list" id="dirList">';
   steps.forEach(l => {
     const isDone = done.has(l.n);
@@ -618,12 +624,114 @@ function toggleDirStep(n) {
   const set = doneSteps(currentSel);
   if (set.has(n)) set.delete(n); else set.add(n);
   saveDoneSteps(currentSel, set);
+  syncSteps(currentSel);
   // Ticking a step moves on to the next one still to do.
   const next = set.has(n) && (dirLegs(currentSel) || []).find(l => l.type === 'leg' && l.n > n && !set.has(l.n));
   if (next) { selectDirStep(next.n, true); return; }
   refreshDirectionsPanel();
   redrawDirections();
 }
+
+/* Ticked steps -> the live tracker. Each step carries the tracker stretches
+   it covers (marks: [[rowIndex, "seg<n>:<from>-<to>:<side>"], ...], worked
+   out when the routes were built). For an authorised editor the phone keeps
+   what's been ticked and what the tracker has confirmed, and sends the
+   difference: straight away, and again whenever it gets the chance, so a
+   tick made with no signal isn't lost. Unticking takes the stretch back
+   off. Once every step this route has on a road is ticked, and the route
+   has that whole road, the road is marked Complete; a road shared with
+   other routes is Complete once all its stretches are in. Not-yet-authorised
+   people's ticks stay on the phone (a suggestion per step would swamp the
+   review queue); they report through the panel below as before. */
+function reportedKey(routeId) { return 'lfp:reported:' + DATA.ward + ':' + routeId; }
+function reportedSteps(routeId) {
+  try { return new Set(JSON.parse(localStorage.getItem(reportedKey(routeId))) || []); } catch (e) { return new Set(); }
+}
+function saveReportedSteps(routeId, set) { try { localStorage.setItem(reportedKey(routeId), JSON.stringify([...set])); } catch (e) {} }
+function markedLegs(routeId) { return (dirLegs(routeId) || []).filter(l => l.type === 'leg' && l.marks && l.marks.length); }
+function canSendSteps(routeId) { return isUnlocked(routeId) && auth.signedIn && auth.authorised && !auth.banned && !!APPS_SCRIPT_URL; }
+function unsentSteps(routeId) {
+  const done = doneSteps(routeId), sent = reportedSteps(routeId);
+  return markedLegs(routeId).filter(l => done.has(l.n) !== sent.has(l.n));
+}
+
+const stepSync = { busy: {}, error: {} };
+function stepSyncNote(routeId) {
+  if (!markedLegs(routeId).length || !isUnlocked(routeId) || auth.banned) return '';
+  const unsent = unsentSteps(routeId).length;
+  const ticks = unsent + ' tick' + (unsent === 1 ? '' : 's');
+  if (!auth.signedIn) return 'Ticks are saved on this phone. Sign in below as an authorised editor to send them to the tracker as you go' + (unsent ? ' (' + ticks + ' to send)' : '') + '.';
+  if (!auth.authorised) return "Ticks stay on this phone: only authorised editors' ticks go straight to the tracker. Report roads with the panel below.";
+  if (stepSync.busy[routeId]) return 'Sending ticks to the tracker…';
+  if (unsent && stepSync.error[routeId]) return '⚠ ' + ticks + ' not sent yet (' + escText(stepSync.error[routeId]) + '). Trying again automatically.';
+  if (unsent) return ticks + ' waiting to send…';
+  return '✓ Every tick is on the tracker.';
+}
+function refreshStepSyncNote(routeId) {
+  const el = document.getElementById('dirSync');
+  if (el && routeId === currentSel) el.innerHTML = stepSyncNote(routeId);
+}
+
+async function syncSteps(routeId) {
+  if (!canSendSteps(routeId) || stepSync.busy[routeId] || !unsentSteps(routeId).length) { refreshStepSyncNote(routeId); return; }
+  const legs = markedLegs(routeId);
+  stepSync.busy[routeId] = true;
+  refreshStepSyncNote(routeId);
+  try {
+    // Ticks made while a request is out are picked up by the next pass.
+    for (let pass = 0; pass < 5; pass++) {
+      const done = doneSteps(routeId), sent = reportedSteps(routeId);
+      const changed = legs.filter(l => done.has(l.n) !== sent.has(l.n));
+      if (!changed.length) break;
+      const rows = new Map();
+      changed.forEach(l => l.marks.forEach(([rowIndex, tok]) => {
+        if (!rows.has(rowIndex)) rows.set(rowIndex, { add: [], remove: [] });
+        rows.get(rowIndex)[done.has(l.n) ? 'add' : 'remove'].push(tok);
+      }));
+      const okRows = new Set();
+      let failed = null;
+      for (const [rowIndex, r] of rows) {
+        const wholeRoad = DATA.roads.some(rd => rd.routeId === routeId && rd.rowIndex === rowIndex && !(rd.originalRanges && rd.originalRanges.length));
+        const complete = wholeRoad && legs.filter(l => l.marks.some(m => m[0] === rowIndex)).every(l => done.has(l.n));
+        let res;
+        try {
+          res = await Backend.markStretch(APPS_SCRIPT_URL, { rowIndex, add: r.add, remove: r.remove, complete });
+        } catch (e) {
+          res = { ok: false, error: navigator.onLine === false ? 'no signal' : "couldn't reach the tracker" };
+        }
+        if (!res.ok) { failed = res; break; }
+        okRows.add(rowIndex);
+        // Keep this route's road lines and report panel in step with the tracker.
+        DATA.roads.filter(rd => rd.routeId === routeId && rd.rowIndex === rowIndex).forEach(rd => {
+          const mark = roadMark(routeId, rd.id);
+          const want = res.status === 'Complete' ? 'done' : (mark === 'done' ? null : mark);
+          if (want !== mark) { setRoadMark(routeId, rd.id, want); applyRoadVisual(routeId, rd.id); }
+        });
+      }
+      // A step counts as sent once every row it touches has taken it (a
+      // step can run onto a second road); sending it to a row again is harmless.
+      const now = reportedSteps(routeId);
+      changed.forEach(l => {
+        if (!l.marks.every(m => okRows.has(m[0]))) return;
+        if (done.has(l.n)) now.add(l.n); else now.delete(l.n);
+      });
+      saveReportedSteps(routeId, now);
+      refreshReportPanelIfActive(routeId);
+      if (failed) {
+        if (failed.signedOut) { auth.signedIn = false; refreshReportPanelIfActive(currentSel); }
+        stepSync.error[routeId] = failed.signedOut ? 'sign in again to send them' : failed.error;
+        return;
+      }
+      stepSync.error[routeId] = null;
+    }
+  } finally {
+    stepSync.busy[routeId] = false;
+    refreshStepSyncNote(routeId);
+  }
+}
+function syncAllSteps() { Object.keys(DATA.routesMeta).forEach(id => { if (unsentSteps(id).length) syncSteps(id); }); }
+window.addEventListener('online', syncAllSteps);
+setInterval(syncAllSteps, 30000);
 
 function show(g) {
   currentSel = g;
