@@ -48,6 +48,18 @@ const Publish = (() => {
   // land, the backend hands back that page's URL instead of publishing a
   // second copy. Pass the same publishId again to resume after a throw.
   async function publishWard({ constituency, ward, htmlContent, publishId = newPublishId(), onRetry }) {
+    return postWithRetry({ constituency, ward, htmlContent, publishId }, onRetry);
+  }
+
+  // Publishes the printable sheets beside the app publishWard just put at
+  // `filename`, so they can be shared as a link: a phone's preview of an
+  // .html file doesn't run the scripts that draw their maps and steps.
+  // Safe to retry: it just rewrites the same file. Returns {url, filename}.
+  async function publishSheets({ filename, sheetsHtml, onRetry }) {
+    return postWithRetry({ action: 'publishSheets', filename, sheetsHtml }, onRetry);
+  }
+
+  async function postWithRetry(body, onRetry) {
     const delaysMs = [0, 4000, 10000, 20000];
     let lastErr;
     for (let i = 0; i < delaysMs.length; i++) {
@@ -56,10 +68,7 @@ const Publish = (() => {
         await new Promise(r => setTimeout(r, delaysMs[i]));
       }
       try {
-        const res = await fetch(PUBLISH_BACKEND_URL, {
-          method: 'POST',
-          body: JSON.stringify({ constituency, ward, htmlContent, publishId }),
-        });
+        const res = await fetch(PUBLISH_BACKEND_URL, { method: 'POST', body: JSON.stringify(body) });
         const data = await res.json().catch(() => ({}));
         if (data.ok) return data;
         lastErr = new Error(data.error || `Publish backend returned HTTP ${res.status}.`);
@@ -70,7 +79,7 @@ const Publish = (() => {
     throw lastErr;
   }
 
-  return { slugify, inferRepoFromLocation, pagesUrlFor, newPublishId, publishWard, MAX_AGE_DAYS, PUBLISH_BACKEND_URL };
+  return { slugify, inferRepoFromLocation, pagesUrlFor, newPublishId, publishWard, publishSheets, MAX_AGE_DAYS, PUBLISH_BACKEND_URL };
 })();
 
 if (typeof module !== 'undefined') module.exports = Publish;

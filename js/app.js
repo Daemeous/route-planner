@@ -514,11 +514,15 @@ $('downloadAppBtn').onclick = () => {
   downloadBlob(`${slugify(state.ward)}.html`, buildAppHtml());
 };
 
-$('downloadSheetsBtn').onclick = () => {
-  if (!state.payload) return;
+function buildSheetsHtml(appUrl) {
   const opts = currentClusterOpts();
   opts.style = document.querySelector('input[name=sheetStyle]:checked').value;
-  const html = PrintSheets.buildPrintableHtml(state.payload, state.ward, currentAppUrl(), opts);
+  return PrintSheets.buildPrintableHtml(state.payload, state.ward, appUrl, opts);
+}
+
+$('downloadSheetsBtn').onclick = () => {
+  if (!state.payload) return;
+  const html = buildSheetsHtml(currentAppUrl());
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   window.open(url, '_blank');
@@ -538,7 +542,8 @@ function updatePublishTargetHint() {
   const filename = `${slugify(constituency)}-${slugify(ward)}.html`;
   el.innerHTML = `Will publish to: <b>${Publish.pagesUrlFor(repoInfo, filename)}</b> -- ` +
     `or the next number after it (…1.html, …2.html) if that ward's already been published recently and is still live. ` +
-    `Existing pages are never overwritten, so someone else's already-printed sheets are always safe.`;
+    `Existing pages are never overwritten, so someone else's already-printed sheets are always safe. ` +
+    `The printable route sheets (in the style picked below) are published beside it, as …-sheets.html, so you can send people a link rather than a file.`;
 }
 $('constituencyName').addEventListener('input', updatePublishTargetHint);
 
@@ -568,8 +573,25 @@ $('publishBtn').onclick = async () => {
         escHtml(result.cleanedUp.map(c => c.ward || c.filename).join(', ')) +
         `. Reminder: generate a fresh route plan close to the actual event day, not weeks ahead -- it needs an up-to-date picture of which roads are already done to avoid double-leafleting.`;
     }
-    renderPublishedBanner(banner, result.url, cleanupNote, 'checking');
-    pollUntilLive(result.url, live => renderPublishedBanner(banner, result.url, cleanupNote, live ? 'live' : 'slow'));
+
+    // The sheets go up beside the app, so they can be sent as a link: a
+    // phone's preview of a sent .html file doesn't draw their maps or steps.
+    // Their QR codes need the app's final URL, so this has to come second.
+    setBanner(banner, 'info', 'App published. Now publishing the printable route sheets…');
+    let sheetsUrl = null, sheetsNote = '';
+    try {
+      const sheets = await Publish.publishSheets({
+        filename: result.filename, sheetsHtml: buildSheetsHtml(result.url),
+        onRetry: n => setBanner(banner, 'info', `Publishing the route sheets… no reply yet, checking again (attempt ${n + 1})…`),
+      });
+      sheetsUrl = sheets.url;
+    } catch (e) {
+      sheetsNote = `<br>⚠ The app is published, but the printable sheets couldn't be (${escHtml(e.message)}). Use "Download &amp; print route sheets" instead.`;
+    }
+    const render = status => renderPublishedBanner(banner, result.url, sheetsUrl, sheetsNote + cleanupNote, status);
+    render('checking');
+    // The sheets are committed after the app, so once they're up both are.
+    pollUntilLive(sheetsUrl || result.url, live => render(live ? 'live' : 'slow'));
   } catch (e) {
     setBanner(banner, 'error', e.message);
   } finally {
@@ -579,14 +601,17 @@ $('publishBtn').onclick = async () => {
 
 function escHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
-function renderPublishedBanner(banner, url, cleanupNote, status) {
-  const link = `<a href="${escHtml(url)}" target="_blank" rel="noopener">${escHtml(url)}</a>`;
+function renderPublishedBanner(banner, url, sheetsUrl, cleanupNote, status) {
+  const a = u => `<a href="${escHtml(u)}" target="_blank" rel="noopener">${escHtml(u)}</a>`;
+  const links = `App: ${a(url)}` + (sheetsUrl
+    ? `<br>Printable route sheets: ${a(sheetsUrl)} -- send this link to whoever's printing, rather than the file itself.`
+    : '');
   const statusLine = {
     checking: '⏳ Publishing usually takes GitHub Pages a minute or two to go live -- checking automatically, no need to keep refreshing yourself…',
     live: '✓ It\'s live now!',
     slow: "⏳ Still building after a couple of minutes -- unusual, but the link will work once it's ready. Try it again shortly.",
   }[status];
-  setBannerHtml(banner, 'ok', `Published: ${link}<br>${statusLine}${cleanupNote}`);
+  setBannerHtml(banner, 'ok', `Published!<br>${links}<br>${statusLine}${cleanupNote}`);
 }
 
 // Same-origin fetch (the published page lives on the same daemeous.github.io

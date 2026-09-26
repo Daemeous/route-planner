@@ -30,6 +30,10 @@
  * the client only ever POSTs {constituency, ward, htmlContent, publishId} here and
  * gets back {ok, url, cleanedUp}.
  *
+ * Straight after that, it gets {action: 'publishSheets', filename,
+ * sheetsHtml}: the printable route sheets for that app, published beside
+ * it as <app name>-sheets.html (see publishSheets).
+ *
  * It also accepts {action: 'cachePubs', bbox} from js/pubs.js whenever a
  * browser had to ask Overpass for a ward outside data/pubs.json's
  * coverage. Only the bbox is taken from the browser: this script fetches
@@ -53,7 +57,11 @@ function doPost(e) {
 
     if (body.action === 'cachePubs') return jsonResp({ ok: true, ...cachePubs(owner, repo, token, body.bbox) });
 
-    if (!body.ward || !body.htmlContent) return jsonResp({ ok: false, error: 'Missing ward or htmlContent' });
+    if (body.action === 'publishSheets') {
+      if (!body.filename || !body.sheetsHtml) return jsonResp({ ok: false, error: 'Missing filename or sheetsHtml' });
+    } else if (!body.ward || !body.htmlContent) {
+      return jsonResp({ ok: false, error: 'Missing ward or htmlContent' });
+    }
 
     // One publish at a time: two at once could pick the same filename, and a
     // browser retry must wait for its first attempt to finish so it can find
@@ -61,7 +69,9 @@ function doPost(e) {
     const lock = LockService.getScriptLock();
     lock.waitLock(60000);
     try {
-      const result = publishWard(owner, repo, token, body.constituency || 'district', body.ward, body.htmlContent, body.publishId);
+      const result = body.action === 'publishSheets'
+        ? publishSheets(owner, repo, token, body.filename, body.sheetsHtml)
+        : publishWard(owner, repo, token, body.constituency || 'district', body.ward, body.htmlContent, body.publishId);
       return jsonResp({ ok: true, ...result });
     } finally {
       lock.releaseLock();
@@ -150,8 +160,15 @@ function publishWard(owner, repo, token, constituency, ward, htmlContent, publis
   // free again, and a page added by hand is never overwritten.
   const listing = ghApi('GET', owner, repo, '', token) || [];
   const existingFiles = new Set(listing.filter(f => f.type === 'file').map(f => f.name));
+  // A page deleted by hand takes its route sheets with it.
   Object.keys(manifest).forEach(fname => {
-    if (!existingFiles.has(fname)) delete manifest[fname];
+    if (existingFiles.has(fname)) return;
+    const sheets = manifest[fname].sheets;
+    if (sheets && existingFiles.has(sheets)) {
+      deleteFile(owner, repo, sheets, `Remove ${sheets}: its app ${fname} was deleted`, token);
+      existingFiles.delete(sheets);
+    }
+    delete manifest[fname];
   });
 
   const cutoff = Date.now() - MAX_AGE_DAYS * 86400000;
@@ -161,6 +178,7 @@ function publishWard(owner, repo, token, constituency, ward, htmlContent, publis
     const ts = Date.parse(entry.generatedAt);
     if (!isNaN(ts) && ts < cutoff) {
       deleteFile(owner, repo, fname, `Auto-clean: ${fname} is over ${MAX_AGE_DAYS} days old`, token);
+      if (entry.sheets) deleteFile(owner, repo, entry.sheets, `Auto-clean: ${entry.sheets} is over ${MAX_AGE_DAYS} days old`, token);
       cleanedUp.push({ filename: fname, ward: entry.ward, generatedAt: entry.generatedAt });
       delete manifest[fname];
     }
@@ -179,6 +197,27 @@ function publishWard(owner, repo, token, constituency, ward, htmlContent, publis
   writeFile(owner, repo, MANIFEST_PATH, JSON.stringify(manifest, null, 2), `Update manifest for ${filename}`, token);
 
   return { url: url(filename), filename, cleanedUp };
+}
+
+// The printable route sheets for an app just published by publishWard, as
+// <app name>-sheets.html next to it: a link opens them in a real browser,
+// where an .html file sent over WhatsApp etc. only gets a phone's file
+// preview, which doesn't run the scripts that draw the maps and steps. The
+// sheets' QR codes need the app's final URL, hence a second request once
+// publishWard has picked it. Only an app that's in the manifest can get
+// sheets, so this can't be used to write any other file.
+function publishSheets(owner, repo, token, filename, sheetsHtml) {
+  const manifest = readManifest(owner, repo, token);
+  if (!/^[a-z0-9-]+\.html$/.test(filename) || !manifest[filename]) {
+    throw new Error(`${filename} isn't a published app`);
+  }
+  const sheets = filename.replace(/\.html$/, '-sheets.html');
+  writeFile(owner, repo, sheets, sheetsHtml, `Publish route sheets for ${filename}`, token);
+  if (manifest[filename].sheets !== sheets) {
+    manifest[filename].sheets = sheets;
+    writeFile(owner, repo, MANIFEST_PATH, JSON.stringify(manifest, null, 2), `Update manifest for ${sheets}`, token);
+  }
+  return { url: `https://${owner}.github.io/${repo}/${sheets}`, filename: sheets };
 }
 
 // ── Shared pub cache (data/pubs.json) ──
