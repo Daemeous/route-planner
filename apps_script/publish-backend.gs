@@ -27,7 +27,7 @@
  *    publish.js again).
  *
  * The token this script uses NEVER reaches the browser at any point --
- * the client only ever POSTs {constituency, ward, htmlContent} here and
+ * the client only ever POSTs {constituency, ward, htmlContent, publishId} here and
  * gets back {ok, url, cleanedUp}.
  *
  * It also accepts {action: 'cachePubs', bbox} from js/pubs.js whenever a
@@ -55,8 +55,17 @@ function doPost(e) {
 
     if (!body.ward || !body.htmlContent) return jsonResp({ ok: false, error: 'Missing ward or htmlContent' });
 
-    const result = publishWard(owner, repo, token, body.constituency || 'district', body.ward, body.htmlContent);
-    return jsonResp({ ok: true, ...result });
+    // One publish at a time: two at once could pick the same filename, and a
+    // browser retry must wait for its first attempt to finish so it can find
+    // that attempt's page (by publishId) rather than publish a second copy.
+    const lock = LockService.getScriptLock();
+    lock.waitLock(60000);
+    try {
+      const result = publishWard(owner, repo, token, body.constituency || 'district', body.ward, body.htmlContent, body.publishId);
+      return jsonResp({ ok: true, ...result });
+    } finally {
+      lock.releaseLock();
+    }
   } catch (err) {
     return jsonResp({ ok: false, error: String(err) });
   }
@@ -120,20 +129,30 @@ function readManifest(owner, repo, token) {
 // (e.g. the plain <base>.html expired and was deleted) is naturally
 // reused before any higher number, keeping numbering at its lowest
 // possible value rather than ever "sticking" at a higher one.
-function pickAvailableFilename(manifest, base) {
+function pickAvailableFilename(manifest, base, existingFiles) {
+  const taken = f => manifest[f] || existingFiles.has(f);
   let filename = `${base}.html`;
-  for (let n = 1; manifest[filename] && n < 1000; n++) {
+  for (let n = 1; taken(filename) && n < 1000; n++) {
     filename = `${base}${n}.html`;
   }
   return filename;
 }
 
-function publishWard(owner, repo, token, constituency, ward, htmlContent) {
+function publishWard(owner, repo, token, constituency, ward, htmlContent, publishId) {
   const constSlug = slugify(constituency);
   const wardSlug = slugify(ward);
   const base = `${constSlug}-${wardSlug}`;
 
   const manifest = readManifest(owner, repo, token);
+
+  // The manifest can drift from the repo -- e.g. someone deletes a page by
+  // hand on GitHub. Check what's really there so a deleted page's name is
+  // free again, and a page added by hand is never overwritten.
+  const listing = ghApi('GET', owner, repo, '', token) || [];
+  const existingFiles = new Set(listing.filter(f => f.type === 'file').map(f => f.name));
+  Object.keys(manifest).forEach(fname => {
+    if (!existingFiles.has(fname)) delete manifest[fname];
+  });
 
   const cutoff = Date.now() - MAX_AGE_DAYS * 86400000;
   const cleanedUp = [];
@@ -147,13 +166,19 @@ function publishWard(owner, repo, token, constituency, ward, htmlContent) {
     }
   });
 
-  const filename = pickAvailableFilename(manifest, base);
+  // A retry of a publish that already landed (the browser never got the
+  // reply) just gets that page's URL back.
+  const url = f => `https://${owner}.github.io/${repo}/${f}`;
+  const already = publishId && Object.keys(manifest).find(f => manifest[f].publishId === publishId);
+  if (already) return { url: url(already), filename: already, cleanedUp: [], retried: true };
+
+  const filename = pickAvailableFilename(manifest, base, existingFiles);
 
   writeFile(owner, repo, filename, htmlContent, `Publish ${ward} route app`, token);
-  manifest[filename] = { ward, constituency, generatedAt: new Date().toISOString() };
+  manifest[filename] = { ward, constituency, generatedAt: new Date().toISOString(), publishId };
   writeFile(owner, repo, MANIFEST_PATH, JSON.stringify(manifest, null, 2), `Update manifest for ${filename}`, token);
 
-  return { url: `https://${owner}.github.io/${repo}/${filename}`, filename, cleanedUp };
+  return { url: url(filename), filename, cleanedUp };
 }
 
 // ── Shared pub cache (data/pubs.json) ──

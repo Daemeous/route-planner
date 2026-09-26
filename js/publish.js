@@ -37,18 +37,40 @@ const Publish = (() => {
     return isUserRootSite ? `https://${owner}.github.io/${filename}` : `https://${owner}.github.io/${repo}/${filename}`;
   }
 
-  // Returns {url, filename, cleanedUp: [{filename, ward, generatedAt}]}.
-  async function publishWard({ constituency, ward, htmlContent }) {
-    const res = await fetch(PUBLISH_BACKEND_URL, {
-      method: 'POST',
-      body: JSON.stringify({ constituency, ward, htmlContent }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!data.ok) throw new Error(data.error || `Publish backend returned HTTP ${res.status}.`);
-    return data;
+  function newPublishId() {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  return { slugify, inferRepoFromLocation, pagesUrlFor, publishWard, MAX_AGE_DAYS, PUBLISH_BACKEND_URL };
+  // Returns {url, filename, cleanedUp: [{filename, ward, generatedAt}]}.
+  // Apps Script sometimes loses its reply even though the publish went
+  // through (the browser sees a 404 on its .../echo redirect). So a failed
+  // attempt is retried with the same publishId: if the first attempt did
+  // land, the backend hands back that page's URL instead of publishing a
+  // second copy. Pass the same publishId again to resume after a throw.
+  async function publishWard({ constituency, ward, htmlContent, publishId = newPublishId(), onRetry }) {
+    const delaysMs = [0, 4000, 10000, 20000];
+    let lastErr;
+    for (let i = 0; i < delaysMs.length; i++) {
+      if (delaysMs[i]) {
+        if (onRetry) onRetry(i);
+        await new Promise(r => setTimeout(r, delaysMs[i]));
+      }
+      try {
+        const res = await fetch(PUBLISH_BACKEND_URL, {
+          method: 'POST',
+          body: JSON.stringify({ constituency, ward, htmlContent, publishId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data.ok) return data;
+        lastErr = new Error(data.error || `Publish backend returned HTTP ${res.status}.`);
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr;
+  }
+
+  return { slugify, inferRepoFromLocation, pagesUrlFor, newPublishId, publishWard, MAX_AGE_DAYS, PUBLISH_BACKEND_URL };
 })();
 
 if (typeof module !== 'undefined') module.exports = Publish;

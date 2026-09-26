@@ -550,8 +550,17 @@ $('publishBtn').onclick = async () => {
 
   setBanner(banner, 'info', 'Publishing…');
   $('publishBtn').disabled = true;
+  // Clicking Publish again after a failure reuses the failed attempt's id
+  // (same routes only), so a publish that secretly landed isn't duplicated.
+  if (!state.pendingPublish || state.pendingPublish.payload !== state.payload) {
+    state.pendingPublish = { id: Publish.newPublishId(), payload: state.payload };
+  }
   try {
-    const result = await Publish.publishWard({ constituency, ward: state.ward, htmlContent: buildAppHtml() });
+    const result = await Publish.publishWard({
+      constituency, ward: state.ward, htmlContent: buildAppHtml(), publishId: state.pendingPublish.id,
+      onRetry: n => setBanner(banner, 'info', `Publishing… no reply yet, checking again (attempt ${n + 1})…`),
+    });
+    state.pendingPublish = null;
     state.appUrl = result.url;
     let cleanupNote = '';
     if (result.cleanedUp && result.cleanedUp.length) {
