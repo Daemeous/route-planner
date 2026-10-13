@@ -17,9 +17,23 @@
     -2.0486616
    ],
    "fetchedAt": "2026-09-25"
+  },
+  {
+   "bbox": [
+    53.341414239979684,
+    -1.1515569337111358,
+    53.44630015559723,
+    -0.9951033
+   ],
+   "fetchedAt": "2026-10-13"
   }
  ],
  "pubs": [
+  {
+   "name": "31 Market Place Cocktail Bar Bistro & Creperie",
+   "lat": 53.4300251,
+   "lon": -1.0211756
+  },
   {
    "name": "Alma Arms",
    "lat": 53.0068178,
@@ -29,6 +43,11 @@
    "name": "Angel Inn",
    "lat": 52.9980665,
    "lon": -2.1549452
+  },
+  {
+   "name": "Angel Inn",
+   "lat": 53.3783106,
+   "lon": -1.0616841
   },
   {
    "name": "Auctioneers Arms",
@@ -46,6 +65,11 @@
    "lon": -2.2703188
   },
   {
+   "name": "Bawtrys Bar and Brasserie",
+   "lat": 53.4307094,
+   "lon": -1.020164
+  },
+  {
    "name": "Bench & Bar",
    "lat": 52.9967778,
    "lon": -2.1641508
@@ -59,6 +83,16 @@
    "name": "Black Lion",
    "lat": 52.9866412,
    "lon": -2.2033406
+  },
+  {
+   "name": "Blacksmith's Arms",
+   "lat": 53.4173119,
+   "lon": -1.0772944
+  },
+  {
+   "name": "Blue Bell",
+   "lat": 53.3827627,
+   "lon": -1.0148985
   },
   {
    "name": "Blue Pig",
@@ -276,6 +310,11 @@
    "lon": -2.2253269
   },
   {
+   "name": "Grey Horses Inn",
+   "lat": 53.3540255,
+   "lon": -1.1114377
+  },
+  {
    "name": "Greyhound Inn",
    "lat": 52.8693112,
    "lon": -2.0912447
@@ -361,6 +400,16 @@
    "lon": -2.2695982
   },
   {
+   "name": "King William",
+   "lat": 53.4183847,
+   "lon": -1.0017084
+  },
+  {
+   "name": "King William IV",
+   "lat": 53.3919719,
+   "lon": -1.1175795
+  },
+  {
    "name": "King's Arms",
    "lat": 52.8590915,
    "lon": -2.2511013
@@ -406,6 +455,11 @@
    "lon": -2.1163324
   },
   {
+   "name": "Lotties",
+   "lat": 53.432789,
+   "lon": -1.108991
+  },
+  {
    "name": "Lounge Bar",
    "lat": 53.0023237,
    "lon": -2.2707158
@@ -439,6 +493,11 @@
    "name": "Marquis of Granby",
    "lat": 53.001373,
    "lon": -2.1961252
+  },
+  {
+   "name": "Mayflower",
+   "lat": 53.4439693,
+   "lon": -1.0061334
   },
   {
    "name": "Metropolitan Bar",
@@ -486,6 +545,11 @@
    "lon": -2.0653728
   },
   {
+   "name": "Pangaea",
+   "lat": 53.4302076,
+   "lon": -1.0203812
+  },
+  {
    "name": "Park Inn",
    "lat": 52.9774816,
    "lon": -2.1366462
@@ -514,6 +578,11 @@
    "name": "Railway Inn",
    "lat": 52.8065641,
    "lon": -2.1256466
+  },
+  {
+   "name": "Red Hart Hotel",
+   "lat": 53.3774488,
+   "lon": -1.061857
   },
   {
    "name": "Red House",
@@ -561,6 +630,11 @@
    "lon": -2.1485822
   },
   {
+   "name": "Royal Oak",
+   "lat": 53.4349326,
+   "lon": -1.1101289
+  },
+  {
    "name": "Royal Oak Inn",
    "lat": 52.7877131,
    "lon": -2.1168683
@@ -576,9 +650,19 @@
    "lon": -2.4843053
   },
   {
+   "name": "Scarbrough Arms",
+   "lat": 53.4328155,
+   "lon": -1.106726
+  },
+  {
    "name": "Seven Stars",
    "lat": 52.7750439,
    "lon": -2.0694862
+  },
+  {
+   "name": "Sherwood Ranger",
+   "lat": 53.3535633,
+   "lon": -1.1125382
   },
   {
    "name": "Shrewsbury Arms",
@@ -706,6 +790,11 @@
    "lon": -2.0983785
   },
   {
+   "name": "The Blue Bell",
+   "lat": 53.3546108,
+   "lon": -1.1120276
+  },
+  {
    "name": "The Blurton Club",
    "lat": 52.979075,
    "lon": -2.1514671
@@ -759,6 +848,11 @@
    "name": "The Butler's Bell",
    "lat": 52.8086175,
    "lon": -2.1181474
+  },
+  {
+   "name": "The Carpenters Arms",
+   "lat": 53.4300441,
+   "lon": -1.1106979
   },
   {
    "name": "The Cherry Tree",
@@ -856,6 +950,11 @@
    "lon": -2.1188087
   },
   {
+   "name": "The fourways hotel",
+   "lat": 53.3772952,
+   "lon": -1.0623398
+  },
+  {
    "name": "The Fox",
    "lat": 52.7484077,
    "lon": -2.3597824
@@ -864,6 +963,11 @@
    "name": "The Gables",
    "lat": 52.9721901,
    "lon": -2.1496157
+  },
+  {
+   "name": "The Game Cock",
+   "lat": 53.422118,
+   "lon": -1.0655607
   },
   {
    "name": "The Gardeners Retreat",
@@ -1111,6 +1215,11 @@
    "lon": -2.11623
   },
   {
+   "name": "The Pilgrim Fathers",
+   "lat": 53.4094947,
+   "lon": -1.0221206
+  },
+  {
    "name": "The Plough",
    "lat": 52.8229681,
    "lon": -2.3021331
@@ -1176,6 +1285,11 @@
    "lon": -2.0536451
   },
   {
+   "name": "The Royal Legion",
+   "lat": 53.3781394,
+   "lon": -1.1182456
+  },
+  {
    "name": "The Royal Oak",
    "lat": 52.7544238,
    "lon": -2.2314202
@@ -1204,6 +1318,16 @@
    "name": "The Shakespeare",
    "lat": 52.7664602,
    "lon": -2.3770973
+  },
+  {
+   "name": "The Ship",
+   "lat": 53.4280502,
+   "lon": -1.0198582
+  },
+  {
+   "name": "The Ship Inn",
+   "lat": 53.4390246,
+   "lon": -0.996728
   },
   {
    "name": "The Shire Horse",
@@ -1341,6 +1465,11 @@
    "lon": -2.185286
   },
   {
+   "name": "The White Hart",
+   "lat": 53.4285444,
+   "lon": -1.0205182
+  },
+  {
    "name": "The White Lion",
    "lat": 52.9555478,
    "lon": -2.4056143
@@ -1354,6 +1483,16 @@
    "name": "The Windmill",
    "lat": 52.9576065,
    "lon": -2.1063478
+  },
+  {
+   "name": "Traveller's Rest",
+   "lat": 53.429744,
+   "lon": -1.1162874
+  },
+  {
+   "name": "Turn Pike",
+   "lat": 53.429717,
+   "lon": -1.0206388
   },
   {
    "name": "Vibez",
@@ -1391,6 +1530,11 @@
    "lon": -2.4449557
   },
   {
+   "name": "White Swan",
+   "lat": 53.3758793,
+   "lon": -1.0608126
+  },
+  {
    "name": "William Chesters",
    "lat": 52.9033796,
    "lon": -2.4850673
@@ -1399,6 +1543,11 @@
    "name": "Yates",
    "lat": 53.0118733,
    "lon": -2.2271714
+  },
+  {
+   "name": "Ziniz Bar",
+   "lat": 53.4290985,
+   "lon": -1.0215641
   }
  ]
 }
